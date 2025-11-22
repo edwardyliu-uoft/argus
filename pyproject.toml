@@ -8,14 +8,11 @@ version = "0.1.0"
 description = "A smart contract security scanning tool"
 readme = "README.md"
 requires-python = ">=3.12"
-license = {text = "MIT"}
+license = { text = "MIT" }
 authors = [
-    {name = "Caleb Chin", email = "cchin@cs.toronto.edu"},
-    {name="Edward Liu", email="edwardy.liu@mail.utoronto.ca"},
-    {name="Jonathan Wen", email="jon.wen@mail.utoronto.ca"}
-
-
-
+    { name = "Caleb Chin", email = "cchin@cs.toronto.edu" },
+    { name = "Edward Liu", email = "edwardy.liu@mail.utoronto.ca" },
+    { name = "Jonathan Wen", email = "jon.wen@mail.utoronto.ca" },
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -23,24 +20,23 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
 ]
-dependencies = [ 
+dependencies = [
     "google-genai>=1.0.0",
     "anthropic>=0.18.0",
     "mcp>=1.22.0",
     "click>=8.0.0",
-    "docker>=7.0.0"
-    ]
+    "docker>=7.0.0",
+]
 
 [project.optional-dependencies]
+test = ["pytest>=7.4.0", "pytest-cov>=4.1.0"]
 dev = [
-    "pytest>=7.4.0",
-    "pytest-cov>=4.1.0",
+    "argus[test]",
+    "pylint>=4.0.3",
     "black>=23.7.0",
     "ruff>=0.0.285",
     "mypy>=1.5.0",
 ]
-
-
 
 [project.urls]
 Homepage = "https://github.com/calebchin/argus"
