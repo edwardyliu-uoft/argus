@@ -1,8 +1,8 @@
-"""Configuration loading and validation."""
+"""Argus configuration."""
 
-import json
-from pathlib import Path
 from typing import Dict, Any
+from pathlib import Path
+import json
 
 
 class ArgusConfig:
@@ -16,7 +16,7 @@ class ArgusConfig:
             config_path: Path to config JSON file
         """
         if config_path and Path(config_path).exists():
-            with open(config_path) as f:
+            with open(config_path, encoding="utf-8") as f:
                 self.config = json.load(f)
         else:
             self.config = self.get_default_config()
@@ -45,16 +45,20 @@ class ArgusConfig:
                 "mythril": {
                     "timeout": 300,
                     "format": "json",
-                    "docker": {"image": "mythril/myth:latest",
-                               "network_mode": "none",
-                               "remove_containers": True},
+                    "docker": {
+                        "image": "mythril/myth:latest",
+                        "network_mode": "none",
+                        "remove_containers": True,
+                    },
                 },
                 "slither": {
                     "timeout": 300,
                     "format": "json",
-                    "docker": {"image": "trailofbits/eth-security-toolbox:latest",
-                               "network_mode": "none",
-                               "remove_containers": True},
+                    "docker": {
+                        "image": "trailofbits/eth-security-toolbox:latest",
+                        "network_mode": "none",
+                        "remove_containers": True,
+                    },
                 },
             },
             "services": {
@@ -110,4 +114,4 @@ def initialize() -> ArgusConfig:
     return ArgusConfig(config_path=selected_config)
 
 
-config = initialize()
+conf = initialize()
