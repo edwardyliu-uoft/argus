@@ -1,0 +1,149 @@
+import asyncio
+import json
+import os
+from pathlib import Path
+
+# internal imports
+from ..controller import BaseController
+from argus.core import docker as argus_docker
+# global config object
+from argus.core.config import config
+
+class MythrilController(BaseController):
+    """Controller for the Mythril tool."""
+
+    def __init__(self):
+        """Initialize the MythrilController with ArgusConfig config."""
+        super().__init__()
+
+
+    async def execute(self, command: str = "myth", args: list = []) -> str:
+        """
+        Execute the Mythril tool's detector.
+
+        Args:
+            command: mythril command to execute. Default is "myth"
+            args: List of arguments for the command with the first argument being the target file or directory.
+                If the target is not provided, it defaults to the project root.
+        Returns:
+            Result of the tool execution as a string
+        """
+        try:
+        # Check Docker availability
+            docker_available, error_msg = argus_docker.check_docker_available()
+            if not docker_available:
+                return {
+                    "success": False,
+                    "output": "",
+                    "error": {
+                        "type": "docker_unavailable",
+                        "raw_output": f"{error_msg}\n'Start Docker daemon."
+                    }
+                }
+            image = config.get("tools.mythril.docker.image", "mythril/myth:latest")
+            network_mode = config.get("tools.mythril.docker.network_mode", "none")
+            remove_container = config.get("tools.mythril.docker.remove_containers", True)
+            timeout = config.get("tools.mythril.timeout", 300)
+            output_format = config.get("tools.mythril.format", "json")
+            project_root = config.get("workdir", ".")
+
+            # Extract and prepare target file path
+            target_file_arg = args[0] if args else project_root
+
+            # Convert to absolute path
+            if not os.path.isabs(target_file_arg):
+                target_file = os.path.abspath(os.path.join(project_root, target_file_arg))
+            else:
+                target_file = target_file_arg
+
+            # Build command as list
+            full_command = [command, target_file_arg]
+            if len(args) > 1:
+                full_command.extend(args[1:])
+
+            # Add output format if not already present
+            if output_format == "json" and "--json" not in full_command:
+                full_command.append("--json")
+
+            # pull_image, default behavior is only to pull if not present
+            pull_success, pull_error = argus_docker.pull_image(image)
+
+            if not pull_success:
+                return {
+                    "success": False,
+                    "output": "",
+                    "error": {
+                        "type": "docker_image_not_found",
+                        "raw_output": f"{pull_error}\nTry: docker pull {image}"
+                    }
+                }
+            loop = asyncio.get_event_loop()
+
+            result = await loop.run_in_executor(
+                None,
+                argus_docker.run_docker_command,
+                image,
+                full_command,
+                Path(project_root),
+                target_file,
+                timeout,
+                network_mode,
+                remove_container
+            )
+
+            if not result["success"]:
+                # Check for timeout
+                if "timeout" in result["stderr"].lower():
+                    return {
+                        "success": False,
+                        "output": result["output"],
+                        "error": {
+                            "type": "timeout",
+                            "raw_output": f"Mythril execution timed out after {timeout} seconds"
+                        }
+                    }
+
+                # Check for compilation errors
+                stderr_lower = result["stderr"].lower()
+                if "compilation" in stderr_lower:
+                    error_type = "compilation_error"
+                else:
+                    error_type = "docker_container_error"
+
+                return {
+                    "success": False,
+                    "output": result["output"],
+                    "error": {
+                        "type": error_type,
+                        "raw_output": result["stderr"]
+                    }
+                }
+
+            # Success - Mythril sometimes returns non-zero, check for valid JSON
+            if output_format == "json" and result["output"].strip():
+                try:
+                    json.loads(result["output"])
+                    return {
+                        "success": True,
+                        "output": result["output"],
+                        "error": None
+                    }
+                except json.JSONDecodeError:
+                    # Invalid JSON but no error, return as-is
+                    pass
+
+            return {
+                "success": True,
+                "output": result["output"],
+                "error": None
+            }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "output": "",
+                "error": {
+                    "type": "crash",
+                    "raw_output": f"Unexpected error in Docker execution: {str(e)}"
+                }
+            }
