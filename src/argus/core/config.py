@@ -8,15 +8,15 @@ from typing import Dict, Any
 class ArgusConfig:
     """Manages Argus configuration."""
 
-    def __init__(self, configpath: str = None):
+    def __init__(self, config_path: str = None):
         """
         Load configuration from file or use defaults.
 
         Args:
             config_path: Path to config JSON file
         """
-        if configpath and Path(configpath).exists():
-            with open(configpath) as f:
+        if config_path and Path(config_path).exists():
+            with open(config_path) as f:
                 self.config = json.load(f)
         else:
             self.config = self.get_default_config()
@@ -55,7 +55,7 @@ class ArgusConfig:
             },
             "services": {
                 "mcp": {
-                    "host": "localhost",
+                    "host": "127.0.0.1",
                     "port": 8000,
                 },
                 "langchain": {
@@ -89,3 +89,20 @@ class ArgusConfig:
             else:
                 return default
         return value
+
+
+def initialize() -> ArgusConfig:
+    """Initialize and return the Argus configuration."""
+
+    project_dir = Path.cwd()
+    selected_config = None
+    for fname in ("argus.json", "argus.config.json"):
+        candidate = project_dir / fname
+        if candidate.exists():
+            selected_config = str(candidate)
+            break
+
+    return ArgusConfig(config_path=selected_config)
+
+
+config = initialize()
