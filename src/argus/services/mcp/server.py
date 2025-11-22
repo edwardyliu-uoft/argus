@@ -11,7 +11,7 @@ import time
 
 from mcp.server.fastmcp import FastMCP
 
-from argus.core import config
+from argus.core.config import conf as config
 
 logger = logging.getLogger("argus.console")
 

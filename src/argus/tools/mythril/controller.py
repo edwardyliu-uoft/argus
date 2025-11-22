@@ -7,7 +7,7 @@ from pathlib import Path
 from ..controller import BaseController
 from argus.core import docker as argus_docker
 # global config object
-from argus.core.config import config
+from argus.core.config import conf
 
 class MythrilController(BaseController):
     """Controller for the Mythril tool."""
@@ -30,22 +30,21 @@ class MythrilController(BaseController):
         """
         try:
         # Check Docker availability
-            docker_available, error_msg = argus_docker.check_docker_available()
-            if not docker_available:
+            if not argus_docker.docker_available():
                 return {
                     "success": False,
                     "output": "",
                     "error": {
                         "type": "docker_unavailable",
-                        "raw_output": f"{error_msg}\n'Start Docker daemon."
+                        "raw_output": "Docker daemon not running. Start Docker daemon."
                     }
                 }
-            image = config.get("tools.mythril.docker.image", "mythril/myth:latest")
-            network_mode = config.get("tools.mythril.docker.network_mode", "none")
-            remove_container = config.get("tools.mythril.docker.remove_containers", True)
-            timeout = config.get("tools.mythril.timeout", 300)
-            output_format = config.get("tools.mythril.format", "json")
-            project_root = config.get("workdir", ".")
+            image = conf.get("tools.mythril.docker.image", "mythril/myth:latest")
+            network_mode = conf.get("tools.mythril.docker.network_mode", "none")
+            remove_container = conf.get("tools.mythril.docker.remove_containers", True)
+            timeout = conf.get("tools.mythril.timeout", 300)
+            output_format = conf.get("tools.mythril.format", "json")
+            project_root = conf.get("workdir", ".")
 
             # Extract and prepare target file path
             # For Mythril, args are typically: ["analyze", "file.sol", ...]
@@ -68,7 +67,7 @@ class MythrilController(BaseController):
             else:
                 target_file = target_file_arg
 
-            # Build command as list - use absolute path so run_docker_command can detect and replace it
+            # Build command as list - use absolute path so run_docker can detect and replace it
             full_command = [command]
             for i, arg in enumerate(args):
                 if i == file_arg_index:
@@ -96,7 +95,7 @@ class MythrilController(BaseController):
 
             result = await loop.run_in_executor(
                 None,
-                argus_docker.run_docker_command,
+                argus_docker.run_docker,
                 image,
                 full_command,
                 Path(project_root),
@@ -108,13 +107,13 @@ class MythrilController(BaseController):
 
             # Mythril may return non-zero exit codes even with valid results
             # Check for valid JSON output first
-            if output_format == "json" and result["output"].strip():
+            if output_format == "json" and result["stdout"].strip():
                 try:
-                    json.loads(result["output"])
+                    json.loads(result["stdout"])
                     # Valid JSON output means success regardless of exit code
                     return {
                         "success": True,
-                        "output": result["output"],
+                        "output": result["stdout"],
                         "error": None
                     }
                 except json.JSONDecodeError:
@@ -127,7 +126,7 @@ class MythrilController(BaseController):
                 if "timeout" in result["stderr"].lower():
                     return {
                         "success": False,
-                        "output": result["output"],
+                        "output": result["stdout"],
                         "error": {
                             "type": "timeout",
                             "raw_output": f"Mythril execution timed out after {timeout} seconds"
@@ -143,7 +142,7 @@ class MythrilController(BaseController):
 
                 return {
                     "success": False,
-                    "output": result["output"],
+                    "output": result["stdout"],
                     "error": {
                         "type": error_type,
                         "raw_output": result["stderr"]
@@ -153,7 +152,7 @@ class MythrilController(BaseController):
             # Exit code 0 with no JSON
             return {
                 "success": True,
-                "output": result["output"],
+                "output": result["stdout"],
                 "error": None
             }
 

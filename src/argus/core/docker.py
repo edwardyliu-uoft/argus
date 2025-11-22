@@ -107,6 +107,7 @@ def run_docker(
     image: str,
     command: Optional[Union[str, List[str]]],
     project_root: Path,
+    file_path: str,
     timeout: int,
     network_mode: str = "none",
     remove_container: bool = True,
@@ -118,6 +119,7 @@ def run_docker(
         image: Docker image name
         command: Command to run i.e. str, list of strings, None
         project_root: Project root directory to mount
+        file_path: Absolute path to the target file (will be translated to container path)
         timeout: Execution timeout in seconds
         network_mode: Docker network mode (default: "none" for security)
         remove_container: Whether to remove container after execution
@@ -125,25 +127,55 @@ def run_docker(
     Returns:
         Dict with:
             - success (bool): Whether execution succeeded
-            - stdout (str): stdout from container
+            - stdout (str): stdout from container (or 'output' key for compatibility)
             - stderr (str): stderr from container
             - exit_code (int): Container exit code
     """
     try:
         client = docker.from_env()
+        # NOTE: path translation is necessary here
+        # Calculate relative path from project root to file
+        file_path_obj = Path(file_path)
+        try:
+            relative_path = file_path_obj.relative_to(project_root)
+        except ValueError:
+            # File is not under project root, use parent directory as project root
+            project_root = file_path_obj.parent
+            relative_path = file_path_obj.name
 
-        # Mount project root as /project (read-only)
+        # Container path
+        container_path = f"/project/{relative_path}"
+
+        # Replace the file path in command with container path
+        updated_command = []
+        file_path_resolved = file_path_obj.resolve()
+
+        if isinstance(command, list):
+            for arg in command:
+                try:
+                    arg_path = Path(arg)
+                    # Resolve both paths to handle symlinks (e.g., /var -> /private/var on macOS)
+                    if arg_path.exists() and arg_path.resolve() == file_path_resolved:
+                        updated_command.append(container_path)
+                    else:
+                        updated_command.append(arg)
+                except (OSError, ValueError):
+                    updated_command.append(arg)
+        else:
+            updated_command = command
+
+        # Mount project root as /project (read-write to allow tools to create temp files)
         volumes = {
             str(project_root.resolve()): {
                 "bind": "/project",
-                "mode": "ro",  # Read-only for security
+                "mode": "rw",  # Read-write to allow tools to create temp files
             }
         }
 
-        # Run container with command as-is
+        # Run container with translated command
         container = client.containers.run(
             image,
-            command=command,
+            command=updated_command,
             volumes=volumes,
             working_dir="/project",
             network_mode=network_mode,

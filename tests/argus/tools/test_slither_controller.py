@@ -18,14 +18,14 @@ class TestSlitherController:
         return SlitherController()
 
     @pytest.mark.asyncio
-    @patch("argus.tools.slither.controller.argus_docker.check_docker_available")
+    @patch("argus.tools.slither.controller.argus_docker.docker_available")
     async def test_docker_unavailable(
         self,
         mock_check_docker: Mock,
         controller: SlitherController
     ) -> None:
         """Test execution when Docker is not available."""
-        mock_check_docker.return_value = (False, "Docker daemon not running")
+        mock_check_docker.return_value = False
 
         result = await controller.execute(command="slither", args=["test.sol"])
 
@@ -34,10 +34,10 @@ class TestSlitherController:
         assert "Docker daemon not running" in result["error"]["raw_output"]
 
     @pytest.mark.asyncio
-    @patch("argus.tools.slither.controller.argus_docker.run_docker_command")
+    @patch("argus.tools.slither.controller.argus_docker.run_docker")
     @patch("argus.tools.slither.controller.argus_docker.pull_image")
-    @patch("argus.tools.slither.controller.argus_docker.check_docker_available")
-    @patch("argus.tools.slither.controller.config")
+    @patch("argus.tools.slither.controller.argus_docker.docker_available")
+    @patch("argus.tools.slither.controller.conf")
     async def test_image_pull_failure(
         self,
         mock_config: Mock,
@@ -47,7 +47,7 @@ class TestSlitherController:
         controller: SlitherController
     ) -> None:
         """Test execution when Docker image pull fails."""
-        mock_check_docker.return_value = (True, None)
+        mock_check_docker.return_value = True
         mock_pull_image.return_value = (False, "Image not found in registry")
         mock_config.get.side_effect = lambda key, default: {
             "tools.slither.docker.image": "trailofbits/eth-security-toolbox:latest",
@@ -65,10 +65,10 @@ class TestSlitherController:
         assert "Image not found in registry" in result["error"]["raw_output"]
 
     @pytest.mark.asyncio
-    @patch("argus.tools.slither.controller.argus_docker.run_docker_command")
+    @patch("argus.tools.slither.controller.argus_docker.run_docker")
     @patch("argus.tools.slither.controller.argus_docker.pull_image")
-    @patch("argus.tools.slither.controller.argus_docker.check_docker_available")
-    @patch("argus.tools.slither.controller.config")
+    @patch("argus.tools.slither.controller.argus_docker.docker_available")
+    @patch("argus.tools.slither.controller.conf")
     async def test_successful_execution_with_json_output(
         self,
         mock_config: Mock,
@@ -80,7 +80,7 @@ class TestSlitherController:
     ) -> None:
         """Test successful Slither execution with JSON output."""
         # Setup mocks
-        mock_check_docker.return_value = (True, None)
+        mock_check_docker.return_value = True
         mock_pull_image.return_value = (True, None)
 
         project_root = str(tmp_path)
@@ -96,7 +96,7 @@ class TestSlitherController:
         # Mock successful Docker execution
         mock_run_docker.return_value = {
             "success": True,
-            "output": '{"success": true, "results": []}',
+            "stdout": '{"success": true, "results": []}',
             "stderr": "",
             "exit_code": 0
         }
@@ -119,10 +119,10 @@ class TestSlitherController:
         assert call_args[6] is True  # remove_container
 
     @pytest.mark.asyncio
-    @patch("argus.tools.slither.controller.argus_docker.run_docker_command")
+    @patch("argus.tools.slither.controller.argus_docker.run_docker")
     @patch("argus.tools.slither.controller.argus_docker.pull_image")
-    @patch("argus.tools.slither.controller.argus_docker.check_docker_available")
-    @patch("argus.tools.slither.controller.config")
+    @patch("argus.tools.slither.controller.argus_docker.docker_available")
+    @patch("argus.tools.slither.controller.conf")
     async def test_execution_timeout(
         self,
         mock_config: Mock,
@@ -133,7 +133,7 @@ class TestSlitherController:
         tmp_path: Path
     ) -> None:
         """Test Slither execution timeout handling."""
-        mock_check_docker.return_value = (True, None)
+        mock_check_docker.return_value = True
         mock_pull_image.return_value = (True, None)
 
         project_root = str(tmp_path)
@@ -149,7 +149,7 @@ class TestSlitherController:
         # Mock timeout error
         mock_run_docker.return_value = {
             "success": False,
-            "output": "",
+            "stdout": "",
             "stderr": "Container timeout after 300s",
             "exit_code": -1
         }
@@ -161,10 +161,10 @@ class TestSlitherController:
         assert "timed out after 300 seconds" in result["error"]["raw_output"]
 
     @pytest.mark.asyncio
-    @patch("argus.tools.slither.controller.argus_docker.run_docker_command")
+    @patch("argus.tools.slither.controller.argus_docker.run_docker")
     @patch("argus.tools.slither.controller.argus_docker.pull_image")
-    @patch("argus.tools.slither.controller.argus_docker.check_docker_available")
-    @patch("argus.tools.slither.controller.config")
+    @patch("argus.tools.slither.controller.argus_docker.docker_available")
+    @patch("argus.tools.slither.controller.conf")
     async def test_compilation_error(
         self,
         mock_config: Mock,
@@ -175,7 +175,7 @@ class TestSlitherController:
         tmp_path: Path
     ) -> None:
         """Test Slither execution with compilation error."""
-        mock_check_docker.return_value = (True, None)
+        mock_check_docker.return_value = True
         mock_pull_image.return_value = (True, None)
 
         project_root = str(tmp_path)
@@ -191,7 +191,7 @@ class TestSlitherController:
         # Mock compilation error
         mock_run_docker.return_value = {
             "success": False,
-            "output": "",
+            "stdout": "",
             "stderr": "Compilation failed: Syntax error in contract",
             "exit_code": 1
         }
@@ -203,10 +203,10 @@ class TestSlitherController:
         assert "Compilation failed" in result["error"]["raw_output"]
 
     @pytest.mark.asyncio
-    @patch("argus.tools.slither.controller.argus_docker.run_docker_command")
+    @patch("argus.tools.slither.controller.argus_docker.run_docker")
     @patch("argus.tools.slither.controller.argus_docker.pull_image")
-    @patch("argus.tools.slither.controller.argus_docker.check_docker_available")
-    @patch("argus.tools.slither.controller.config")
+    @patch("argus.tools.slither.controller.argus_docker.docker_available")
+    @patch("argus.tools.slither.controller.conf")
     async def test_docker_container_error(
         self,
         mock_config: Mock,
@@ -217,7 +217,7 @@ class TestSlitherController:
         tmp_path: Path
     ) -> None:
         """Test Slither execution with Docker container error."""
-        mock_check_docker.return_value = (True, None)
+        mock_check_docker.return_value = True
         mock_pull_image.return_value = (True, None)
 
         project_root = str(tmp_path)
@@ -233,7 +233,7 @@ class TestSlitherController:
         # Mock Docker container error
         mock_run_docker.return_value = {
             "success": False,
-            "output": "",
+            "stdout": "",
             "stderr": "Container failed to start",
             "exit_code": 125
         }
@@ -245,10 +245,10 @@ class TestSlitherController:
         assert "Container failed to start" in result["error"]["raw_output"]
 
     @pytest.mark.asyncio
-    @patch("argus.tools.slither.controller.argus_docker.run_docker_command")
+    @patch("argus.tools.slither.controller.argus_docker.run_docker")
     @patch("argus.tools.slither.controller.argus_docker.pull_image")
-    @patch("argus.tools.slither.controller.argus_docker.check_docker_available")
-    @patch("argus.tools.slither.controller.config")
+    @patch("argus.tools.slither.controller.argus_docker.docker_available")
+    @patch("argus.tools.slither.controller.conf")
     async def test_default_target_to_project_root(
         self,
         mock_config: Mock,
@@ -259,7 +259,7 @@ class TestSlitherController:
         tmp_path: Path
     ) -> None:
         """Test that target defaults to project root when no args provided."""
-        mock_check_docker.return_value = (True, None)
+        mock_check_docker.return_value = True
         mock_pull_image.return_value = (True, None)
 
         project_root = str(tmp_path)
@@ -274,7 +274,7 @@ class TestSlitherController:
 
         mock_run_docker.return_value = {
             "success": True,
-            "output": "{}",
+            "stdout": "{}",
             "stderr": "",
             "exit_code": 0
         }
@@ -289,10 +289,10 @@ class TestSlitherController:
         assert project_root in command_list
 
     @pytest.mark.asyncio
-    @patch("argus.tools.slither.controller.argus_docker.run_docker_command")
+    @patch("argus.tools.slither.controller.argus_docker.run_docker")
     @patch("argus.tools.slither.controller.argus_docker.pull_image")
-    @patch("argus.tools.slither.controller.argus_docker.check_docker_available")
-    @patch("argus.tools.slither.controller.config")
+    @patch("argus.tools.slither.controller.argus_docker.docker_available")
+    @patch("argus.tools.slither.controller.conf")
     async def test_json_format_flag_added(
         self,
         mock_config: Mock,
@@ -303,7 +303,7 @@ class TestSlitherController:
         tmp_path: Path
     ) -> None:
         """Test that --json flag is added when format is json."""
-        mock_check_docker.return_value = (True, None)
+        mock_check_docker.return_value = True
         mock_pull_image.return_value = (True, None)
 
         project_root = str(tmp_path)
@@ -318,7 +318,7 @@ class TestSlitherController:
 
         mock_run_docker.return_value = {
             "success": True,
-            "output": "{}",
+            "stdout": "{}",
             "stderr": "",
             "exit_code": 0
         }
@@ -331,10 +331,10 @@ class TestSlitherController:
         assert "--json" in command_list
 
     @pytest.mark.asyncio
-    @patch("argus.tools.slither.controller.argus_docker.run_docker_command")
+    @patch("argus.tools.slither.controller.argus_docker.run_docker")
     @patch("argus.tools.slither.controller.argus_docker.pull_image")
-    @patch("argus.tools.slither.controller.argus_docker.check_docker_available")
-    @patch("argus.tools.slither.controller.config")
+    @patch("argus.tools.slither.controller.argus_docker.docker_available")
+    @patch("argus.tools.slither.controller.conf")
     async def test_invalid_json_output(
         self,
         mock_config: Mock,
@@ -345,7 +345,7 @@ class TestSlitherController:
         tmp_path: Path
     ) -> None:
         """Test handling of invalid JSON output."""
-        mock_check_docker.return_value = (True, None)
+        mock_check_docker.return_value = True
         mock_pull_image.return_value = (True, None)
 
         project_root = str(tmp_path)
@@ -361,7 +361,7 @@ class TestSlitherController:
         # Mock output with invalid JSON
         mock_run_docker.return_value = {
             "success": True,
-            "output": "Not valid JSON output",
+            "stdout": "Not valid JSON output",
             "stderr": "",
             "exit_code": 0
         }
@@ -373,10 +373,10 @@ class TestSlitherController:
         assert "Not valid JSON output" in result["output"]
 
     @pytest.mark.asyncio
-    @patch("argus.tools.slither.controller.argus_docker.run_docker_command")
+    @patch("argus.tools.slither.controller.argus_docker.run_docker")
     @patch("argus.tools.slither.controller.argus_docker.pull_image")
-    @patch("argus.tools.slither.controller.argus_docker.check_docker_available")
-    @patch("argus.tools.slither.controller.config")
+    @patch("argus.tools.slither.controller.argus_docker.docker_available")
+    @patch("argus.tools.slither.controller.conf")
     async def test_exception_handling(
         self,
         mock_config: Mock,
@@ -386,7 +386,7 @@ class TestSlitherController:
         controller: SlitherController
     ) -> None:
         """Test exception handling during execution."""
-        mock_check_docker.return_value = (True, None)
+        mock_check_docker.return_value = True
         mock_pull_image.return_value = (True, None)
         mock_config.get.side_effect = Exception("Unexpected error")
 

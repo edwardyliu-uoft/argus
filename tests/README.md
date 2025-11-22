@@ -39,9 +39,14 @@ pytest tests/integration/test_slither_integration.py -v
 
 ## Running All Tests
 
-Run all tests (unit + integration):
+By default, all tests (unit + integration) are run:
 ```bash
-pytest tests/ -v
+pytest
+```
+
+To exclude integration tests (faster, no Docker required):
+```bash
+pytest -m "not integration"
 ```
 
 ## Test Options

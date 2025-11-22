@@ -7,7 +7,7 @@ from pathlib import Path
 from ..controller import BaseController
 from argus.core import docker as argus_docker
 # global config object
-from argus.core.config import config
+from argus.core.config import conf
 
 class SlitherController(BaseController):
     """Controller for the Slither tool."""
@@ -30,23 +30,22 @@ class SlitherController(BaseController):
         """
         try:
         # Check Docker availability
-            docker_available, error_msg = argus_docker.check_docker_available()
-            if not docker_available:
+            if not argus_docker.docker_available():
                 return {
                     "success": False,
                     "output": "",
                     "error": {
                         "type": "docker_unavailable",
-                        "raw_output": f"{error_msg}\n'Start Docker daemon."
+                        "raw_output": "Docker daemon not running. Start Docker daemon."
                     }
                 }
-            image = config.get("tools.slither.docker.image", "trailofbits/eth-security-toolbox:latest")
+            image = conf.get("tools.slither.docker.image", "trailofbits/eth-security-toolbox:latest")
             # Slither needs network access to download Solidity compiler
-            network_mode = config.get("tools.slither.docker.network_mode", "bridge")
-            remove_container = config.get("tools.slither.docker.remove_containers", True)
-            timeout = config.get("tools.slither.timeout", 300)
-            output_format = config.get("tools.slither.format", "json")
-            project_root = config.get("workdir", ".")
+            network_mode = conf.get("tools.slither.docker.network_mode", "bridge")
+            remove_container = conf.get("tools.slither.docker.remove_containers", True)
+            timeout = conf.get("tools.slither.timeout", 300)
+            output_format = conf.get("tools.slither.format", "json")
+            project_root = conf.get("workdir", ".")
 
             # Extract and prepare target file path
             target_file_arg = args[0] if args else project_root
@@ -57,7 +56,7 @@ class SlitherController(BaseController):
             else:
                 target_file = target_file_arg
 
-            # Build command as list - use absolute path so run_docker_command can detect and replace it
+            # Build command as list - use absolute path so run_docker can detect and replace it
             full_command = [command, target_file]
             if len(args) > 1:
                 full_command.extend(args[1:])
@@ -82,7 +81,7 @@ class SlitherController(BaseController):
             
             result = await loop.run_in_executor(
                 None,
-                argus_docker.run_docker_command,
+                argus_docker.run_docker,
                 image,
                 full_command,
                 Path(project_root),
@@ -94,13 +93,13 @@ class SlitherController(BaseController):
 
             # Slither may return non-zero exit codes even with valid results
             # Check for valid JSON output first
-            if output_format == "json" and result["output"].strip():
+            if output_format == "json" and result["stdout"].strip():
                 try:
-                    json.loads(result["output"])
+                    json.loads(result["stdout"])
                     # Valid JSON output means success regardless of exit code
                     return {
                         "success": True,
-                        "output": result["output"],
+                        "output": result["stdout"],
                         "error": None
                     }
                 except json.JSONDecodeError:
@@ -113,7 +112,7 @@ class SlitherController(BaseController):
                 if "timeout" in result["stderr"].lower():
                     return {
                         "success": False,
-                        "output": result["output"],
+                        "output": result["stdout"],
                         "error": {
                             "type": "timeout",
                             "raw_output": f"Slither execution timed out after {timeout} seconds"
@@ -129,7 +128,7 @@ class SlitherController(BaseController):
 
                 return {
                     "success": False,
-                    "output": result["output"],
+                    "output": result["stdout"],
                     "error": {
                         "type": error_type,
                         "raw_output": result["stderr"]
@@ -139,7 +138,7 @@ class SlitherController(BaseController):
             # Exit code 0 with no JSON
             return {
                 "success": True,
-                "output": result["output"],
+                "output": result["stdout"],
                 "error": None
             }
 

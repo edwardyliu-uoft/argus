@@ -23,7 +23,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from argus.tools.slither.controller import SlitherController
-from argus.core.docker import check_docker_available
+from argus.core.docker import docker_available
 
 # Configure logging
 logging.basicConfig(
@@ -64,10 +64,9 @@ async def test_slither_docker():
 
     # Step 1: Check Docker availability
     logger.info("\n1. Checking Docker availability...")
-    is_available, error = check_docker_available()
-    if not is_available:
-        logger.error(f"❌ FAILED: Docker is not available - {error}")
-        pytest.fail(f"Docker is not available - {error}")
+    if not docker_available():
+        logger.error("❌ FAILED: Docker is not available")
+        pytest.fail("Docker is not available")
     logger.info("✅ Docker is available")
 
     # Step 2: Create test contract
@@ -83,8 +82,8 @@ async def test_slither_docker():
         controller = SlitherController()
 
         # Override config for this test
-        from argus.core.config import config
-        config.config["workdir"] = str(tmp_path)
+        from argus.core.config import conf
+        conf.config["workdir"] = str(tmp_path)
     
         result = await controller.execute(
             command="slither",
