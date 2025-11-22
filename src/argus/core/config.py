@@ -45,12 +45,16 @@ class ArgusConfig:
                 "mythril": {
                     "timeout": 300,
                     "format": "json",
-                    "docker": {"image": "mythril/myth:latest"},
+                    "docker": {"image": "mythril/myth:latest",
+                               "network_mode": "none",
+                               "remove_containers": True},
                 },
                 "slither": {
                     "timeout": 300,
                     "format": "json",
-                    "docker": {"image": "trailofbits/eth-security-toolbox:latest"},
+                    "docker": {"image": "trailofbits/eth-security-toolbox:latest",
+                               "network_mode": "none",
+                               "remove_containers": True},
                 },
             },
             "services": {
