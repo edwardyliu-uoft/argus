@@ -30,11 +30,13 @@ def get_llm_provider(config) -> BaseLLMProvider:
     provider_name = config.get("llm.provider", "anthropic").lower()
 
     if provider_name == "anthropic":
-        from .anthropic_provider import AnthropicProvider
+        from .providers.anthropic import AnthropicProvider
+
         return AnthropicProvider(config)
 
     elif provider_name == "gemini":
-        from .gemini_provider import GeminiProvider
+        from .providers.gemini import GeminiProvider
+
         return GeminiProvider(config)
 
     else:
@@ -45,4 +47,4 @@ def get_llm_provider(config) -> BaseLLMProvider:
 
 
 # Export for convenient imports
-__all__ = ['get_llm_provider', 'BaseLLMProvider']
+__all__ = ["get_llm_provider", "BaseLLMProvider"]

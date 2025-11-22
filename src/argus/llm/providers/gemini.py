@@ -5,12 +5,11 @@ Implements the BaseLLMProvider interface for Google's Gemini models.
 """
 
 import os
-import json
 from typing import List, Dict, Any
 from google import genai
 from google.genai import types
 
-from .base import BaseLLMProvider
+from ..base import BaseLLMProvider
 
 
 class GeminiProvider(BaseLLMProvider):
@@ -54,7 +53,7 @@ class GeminiProvider(BaseLLMProvider):
             gemini_func = {
                 "name": tool["name"],
                 "description": tool["description"],
-                "parameters": parameters
+                "parameters": parameters,
             }
             gemini_functions.append(gemini_func)
 
@@ -69,6 +68,7 @@ class GeminiProvider(BaseLLMProvider):
         - Nested objects are properly structured
         """
         import copy
+
         fixed_schema = copy.deepcopy(schema)
 
         # Fix properties if they exist
@@ -84,10 +84,7 @@ class GeminiProvider(BaseLLMProvider):
         return fixed_schema
 
     def call_with_tools(
-        self,
-        prompt: str,
-        tools: List[Dict[str, Any]],
-        max_iterations: int = 10
+        self, prompt: str, tools: List[Dict[str, Any]], max_iterations: int = 10
     ) -> str:
         """
         Call Gemini with function calling capability (multi-turn conversation).
@@ -102,9 +99,7 @@ class GeminiProvider(BaseLLMProvider):
         """
         gemini_tools = self.convert_tools_format(tools)
         config = types.GenerateContentConfig(
-            tools=[gemini_tools],
-            temperature=0,
-            response_modalities=["TEXT"]
+            tools=[gemini_tools], temperature=0, response_modalities=["TEXT"]
         )
 
         # Start with initial prompt
@@ -113,9 +108,7 @@ class GeminiProvider(BaseLLMProvider):
         for iteration in range(max_iterations):
             try:
                 response = self.client.models.generate_content(
-                    model=self.config.get("llm.model"),
-                    contents=contents,
-                    config=config
+                    model=self.config.get("llm.model"), contents=contents, config=config
                 )
 
                 # Check if response is valid
@@ -127,7 +120,7 @@ class GeminiProvider(BaseLLMProvider):
 
                 # Check if any parts contain function calls
                 has_function_call = any(
-                    hasattr(part, 'function_call') and part.function_call
+                    hasattr(part, "function_call") and part.function_call
                     for part in parts
                 )
 
@@ -136,7 +129,7 @@ class GeminiProvider(BaseLLMProvider):
                     tool_results_parts = []
 
                     for part in parts:
-                        if hasattr(part, 'function_call') and part.function_call:
+                        if hasattr(part, "function_call") and part.function_call:
                             fc = part.function_call
                             print(f"    [Tool] {fc.name}(...)")
 
@@ -146,8 +139,7 @@ class GeminiProvider(BaseLLMProvider):
                             # Create function response part
                             tool_results_parts.append(
                                 types.Part.from_function_response(
-                                    name=fc.name,
-                                    response={"result": result}
+                                    name=fc.name, response={"result": result}
                                 )
                             )
 
@@ -155,10 +147,9 @@ class GeminiProvider(BaseLLMProvider):
                     contents.append(candidate.content)
 
                     # Add function results
-                    contents.append(types.Content(
-                        role="user",
-                        parts=tool_results_parts
-                    ))
+                    contents.append(
+                        types.Content(role="user", parts=tool_results_parts)
+                    )
 
                     # Continue conversation
                     continue
@@ -167,7 +158,7 @@ class GeminiProvider(BaseLLMProvider):
                     # No function calls, extract final text
                     final_text = ""
                     for part in parts:
-                        if hasattr(part, 'text') and part.text:
+                        if hasattr(part, "text") and part.text:
                             final_text += part.text
 
                     return final_text if final_text else "Empty response from Gemini"
@@ -191,14 +182,11 @@ class GeminiProvider(BaseLLMProvider):
         """
         try:
             config = types.GenerateContentConfig(
-                temperature=0,
-                response_modalities=["TEXT"]
+                temperature=0, response_modalities=["TEXT"]
             )
 
             response = self.client.models.generate_content(
-                model=self.config.get("llm.model"),
-                contents=prompt,
-                config=config
+                model=self.config.get("llm.model"), contents=prompt, config=config
             )
 
             # Extract text from response
@@ -207,7 +195,7 @@ class GeminiProvider(BaseLLMProvider):
 
             final_text = ""
             for part in response.candidates[0].content.parts:
-                if hasattr(part, 'text') and part.text:
+                if hasattr(part, "text") and part.text:
                     final_text += part.text
 
             return final_text if final_text else "Empty response from Gemini"
