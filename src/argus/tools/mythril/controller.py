@@ -48,7 +48,19 @@ class MythrilController(BaseController):
             project_root = config.get("workdir", ".")
 
             # Extract and prepare target file path
-            target_file_arg = args[0] if args else project_root
+            # For Mythril, args are typically: ["analyze", "file.sol", ...]
+            # Find the file argument (first non-flag argument after subcommand)
+            target_file_arg = None
+            file_arg_index = None
+            for i, arg in enumerate(args):
+                if not arg.startswith('-') and arg not in ['analyze', 'a', 'disassemble', 'd']:
+                    target_file_arg = arg
+                    file_arg_index = i
+                    break
+
+            if target_file_arg is None:
+                target_file_arg = project_root
+                file_arg_index = None
 
             # Convert to absolute path
             if not os.path.isabs(target_file_arg):
@@ -56,14 +68,17 @@ class MythrilController(BaseController):
             else:
                 target_file = target_file_arg
 
-            # Build command as list
-            full_command = [command, target_file_arg]
-            if len(args) > 1:
-                full_command.extend(args[1:])
+            # Build command as list - use absolute path so run_docker_command can detect and replace it
+            full_command = [command]
+            for i, arg in enumerate(args):
+                if i == file_arg_index:
+                    full_command.append(target_file)
+                else:
+                    full_command.append(arg)
 
             # Add output format if not already present
-            if output_format == "json" and "--json" not in full_command:
-                full_command.append("--json")
+            if output_format == "json" and "-o" not in full_command and "--outform" not in full_command:
+                full_command.extend(["-o", "json"])
 
             # pull_image, default behavior is only to pull if not present
             pull_success, pull_error = argus_docker.pull_image(image)
@@ -91,6 +106,22 @@ class MythrilController(BaseController):
                 remove_container
             )
 
+            # Mythril may return non-zero exit codes even with valid results
+            # Check for valid JSON output first
+            if output_format == "json" and result["output"].strip():
+                try:
+                    json.loads(result["output"])
+                    # Valid JSON output means success regardless of exit code
+                    return {
+                        "success": True,
+                        "output": result["output"],
+                        "error": None
+                    }
+                except json.JSONDecodeError:
+                    # Invalid JSON, check if there was an error
+                    pass
+
+            # If no valid JSON and exit code != 0, check for errors
             if not result["success"]:
                 # Check for timeout
                 if "timeout" in result["stderr"].lower():
@@ -119,19 +150,7 @@ class MythrilController(BaseController):
                     }
                 }
 
-            # Success - Mythril sometimes returns non-zero, check for valid JSON
-            if output_format == "json" and result["output"].strip():
-                try:
-                    json.loads(result["output"])
-                    return {
-                        "success": True,
-                        "output": result["output"],
-                        "error": None
-                    }
-                except json.JSONDecodeError:
-                    # Invalid JSON but no error, return as-is
-                    pass
-
+            # Exit code 0 with no JSON
             return {
                 "success": True,
                 "output": result["output"],

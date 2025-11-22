@@ -1,5 +1,3 @@
-from argus.core.config import ArgusConfig
-
 class BaseController:
     """Base controller class for Argus tools."""
 

@@ -53,7 +53,7 @@ class ArgusConfig:
                     "timeout": 300,
                     "format": "json",
                     "docker": {"image": "trailofbits/eth-security-toolbox:latest",
-                               "network_mode": "none",
+                               "network_mode": "bridge",  # Slither needs network to download solc
                                "remove_containers": True},
                 },
             },

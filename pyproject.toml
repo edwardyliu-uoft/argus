@@ -29,7 +29,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest>=7.4.0", "pytest-cov>=4.1.0"]
+test = ["pytest>=7.4.0", "pytest-cov>=4.1.0", "pytest-asyncio>=0.21.0"]
 dev = [
     "argus[test]",
     "pylint>=4.0.3",
@@ -61,4 +61,10 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --cov=argus --cov-report=term-missing"
+addopts = "-v --cov=argus --cov-report=term-missing -m 'not integration'"
+asyncio_mode = "auto"
+log_cli_format = "%(message)s"
+markers = [
+    "integration: marks tests as integration tests (require Docker, network access)",
+    "unit: marks tests as unit tests (fast, no external dependencies)",
+]

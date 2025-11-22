@@ -41,7 +41,8 @@ class SlitherController(BaseController):
                     }
                 }
             image = config.get("tools.slither.docker.image", "trailofbits/eth-security-toolbox:latest")
-            network_mode = config.get("tools.slither.docker.network_mode", "none")
+            # Slither needs network access to download Solidity compiler
+            network_mode = config.get("tools.slither.docker.network_mode", "bridge")
             remove_container = config.get("tools.slither.docker.remove_containers", True)
             timeout = config.get("tools.slither.timeout", 300)
             output_format = config.get("tools.slither.format", "json")
@@ -56,14 +57,14 @@ class SlitherController(BaseController):
             else:
                 target_file = target_file_arg
 
-            # Build command as list
-            full_command = [command, target_file_arg]
+            # Build command as list - use absolute path so run_docker_command can detect and replace it
+            full_command = [command, target_file]
             if len(args) > 1:
                 full_command.extend(args[1:])
 
             # Add output format if not already present
             if output_format == "json" and "--json" not in full_command:
-                full_command.append("--json")
+                full_command.extend(["--json", "-"])
             
             # pull_image, default behavior is only to pull if not present
             pull_success, pull_error = argus_docker.pull_image(image)
@@ -91,6 +92,22 @@ class SlitherController(BaseController):
                 remove_container
             )
 
+            # Slither may return non-zero exit codes even with valid results
+            # Check for valid JSON output first
+            if output_format == "json" and result["output"].strip():
+                try:
+                    json.loads(result["output"])
+                    # Valid JSON output means success regardless of exit code
+                    return {
+                        "success": True,
+                        "output": result["output"],
+                        "error": None
+                    }
+                except json.JSONDecodeError:
+                    # Invalid JSON, check if there was an error
+                    pass
+
+            # If no valid JSON and exit code != 0, check for errors
             if not result["success"]:
                 # Check for timeout
                 if "timeout" in result["stderr"].lower():
@@ -119,19 +136,7 @@ class SlitherController(BaseController):
                     }
                 }
 
-            # Success - Slither sometimes returns non-zero, check for valid JSON
-            if output_format == "json" and result["output"].strip():
-                try:
-                    json.loads(result["output"])
-                    return {
-                        "success": True,
-                        "output": result["output"],
-                        "error": None
-                    }
-                except json.JSONDecodeError:
-                    # Invalid JSON but no error, return as-is
-                    pass
-
+            # Exit code 0 with no JSON
             return {
                 "success": True,
                 "output": result["output"],

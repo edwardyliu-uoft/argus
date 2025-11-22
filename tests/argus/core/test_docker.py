@@ -9,7 +9,7 @@ from docker.errors import DockerException, ImageNotFound, APIError
 
 from argus.core.docker import (
     check_docker_available,
-    pull_image_if_needed,
+    pull_image,
     get_project_root,
     run_docker_command,
 )
@@ -54,17 +54,17 @@ class TestCheckDockerAvailable:
         assert "Docker error" in error
 
 
-class TestPullImageIfNeeded:
-    """Tests for pull_image_if_needed function."""
+class TestPullImage:
+    """Tests for pull_image function."""
 
     @patch("argus.core.docker.docker.from_env")
-    def test_pull_policy_never_image_exists(self, mock_from_env: Mock) -> None:
-        """Test 'never' policy when image exists locally."""
+    def test_image_already_exists_locally(self, mock_from_env: Mock) -> None:
+        """Test when image already exists locally - should not pull."""
         mock_client = Mock()
         mock_client.images.get.return_value = Mock()
         mock_from_env.return_value = mock_client
 
-        success, error = pull_image_if_needed("test:latest", "never")
+        success, error = pull_image("test:latest")
 
         assert success is True
         assert error is None
@@ -72,84 +72,57 @@ class TestPullImageIfNeeded:
         mock_client.images.pull.assert_not_called()
 
     @patch("argus.core.docker.docker.from_env")
-    def test_pull_policy_never_image_not_found(self, mock_from_env: Mock) -> None:
-        """Test 'never' policy when image doesn't exist locally."""
-        mock_client = Mock()
-        mock_client.images.get.side_effect = ImageNotFound("Not found")
-        mock_from_env.return_value = mock_client
-
-        success, error = pull_image_if_needed("test:latest", "never")
-
-        assert success is False
-        assert error is not None
-        assert "not found" in error
-        assert "never" in error
-
-    @patch("argus.core.docker.docker.from_env")
-    def test_pull_policy_if_not_present_image_exists(self, mock_from_env: Mock) -> None:
-        """Test 'if-not-present' policy when image exists locally."""
-        mock_client = Mock()
-        mock_client.images.get.return_value = Mock()
-        mock_from_env.return_value = mock_client
-
-        success, error = pull_image_if_needed("test:latest", "if-not-present")
-
-        assert success is True
-        assert error is None
-        mock_client.images.get.assert_called_once_with("test:latest")
-        mock_client.images.pull.assert_not_called()
-
-    @patch("argus.core.docker.docker.from_env")
-    def test_pull_policy_if_not_present_image_missing(self, mock_from_env: Mock) -> None:
-        """Test 'if-not-present' policy when image doesn't exist locally."""
+    def test_image_not_found_locally_pulls_successfully(self, mock_from_env: Mock) -> None:
+        """Test when image doesn't exist locally - should pull it."""
         mock_client = Mock()
         mock_client.images.get.side_effect = ImageNotFound("Not found")
         mock_client.images.pull.return_value = Mock()
         mock_from_env.return_value = mock_client
 
-        success, error = pull_image_if_needed("test:latest", "if-not-present")
+        success, error = pull_image("test:latest")
 
         assert success is True
         assert error is None
         mock_client.images.pull.assert_called_once_with("test:latest")
 
     @patch("argus.core.docker.docker.from_env")
-    def test_pull_policy_always(self, mock_from_env: Mock) -> None:
-        """Test 'always' policy pulls image regardless."""
+    def test_image_not_found_in_registry(self, mock_from_env: Mock) -> None:
+        """Test when image doesn't exist in registry."""
         mock_client = Mock()
-        mock_client.images.pull.return_value = Mock()
+        mock_client.images.get.side_effect = ImageNotFound("Not found locally")
+        mock_client.images.pull.side_effect = ImageNotFound("Not found in registry")
         mock_from_env.return_value = mock_client
 
-        success, error = pull_image_if_needed("test:latest", "always")
-
-        assert success is True
-        assert error is None
-        mock_client.images.pull.assert_called_once_with("test:latest")
-
-    @patch("argus.core.docker.docker.from_env")
-    def test_invalid_pull_policy(self, mock_from_env: Mock) -> None:
-        """Test invalid pull policy."""
-        mock_client = Mock()
-        mock_from_env.return_value = mock_client
-
-        success, error = pull_image_if_needed("test:latest", "invalid")
+        success, error = pull_image("test:latest")
 
         assert success is False
         assert error is not None
-        assert "Invalid pull_policy" in error
+        assert "not found in registry" in error.lower()
 
     @patch("argus.core.docker.docker.from_env")
     def test_pull_image_api_error(self, mock_from_env: Mock) -> None:
         """Test API error during image pull."""
         mock_client = Mock()
+        mock_client.images.get.side_effect = ImageNotFound("Not found")
         mock_client.images.pull.side_effect = APIError("Pull failed")
         mock_from_env.return_value = mock_client
 
-        success, error = pull_image_if_needed("test:latest", "always")
+        success, error = pull_image("test:latest")
 
         assert success is False
         assert error is not None
         assert "Failed to pull image" in error
+
+    @patch("argus.core.docker.docker.from_env")
+    def test_docker_connection_error(self, mock_from_env: Mock) -> None:
+        """Test general Docker error."""
+        mock_from_env.side_effect = Exception("Connection failed")
+
+        success, error = pull_image("test:latest")
+
+        assert success is False
+        assert error is not None
+        assert "Docker error" in error
 
 
 class TestGetProjectRoot:

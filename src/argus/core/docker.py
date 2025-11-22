@@ -36,7 +36,7 @@ def check_docker_available() -> Tuple[bool, Optional[str]]:
         return False, error_msg
 
 
-def pull_image_if_needed(image: str, pull_policy: str) -> Tuple[bool, Optional[str]]:
+def pull_image(image: str) -> Tuple[bool, Optional[str]]:
     """
     Pull Docker image based on pull policy.
 
@@ -50,40 +50,16 @@ def pull_image_if_needed(image: str, pull_policy: str) -> Tuple[bool, Optional[s
     try:
         client = docker.from_env()
 
-        if pull_policy == "never":
-            # Check if image exists locally
-            try:
-                client.images.get(image)
-                logger.debug(f"Image '{image}' found locally")
-                return True, None
-            except ImageNotFound:
-                error_msg = f"Image '{image}' not found and pull_policy is 'never'"
-                logger.error(error_msg)
-                return False, error_msg
-
-        elif pull_policy == "if-not-present":
-            # Only pull if not present
-            try:
-                client.images.get(image)
-                logger.debug(f"Image '{image}' already present locally")
-                return True, None  # Image exists, no need to pull
-            except ImageNotFound:
-                logger.info(f"Pulling Docker image: {image}...")
-                client.images.pull(image)
-                logger.info(f"Image '{image}' pulled successfully")
-                return True, None
-
-        elif pull_policy == "always":
-            # Always pull latest
+        # Only pull if not present
+        try:
+            client.images.get(image)
+            logger.debug(f"Image '{image}' already present locally")
+            return True, None  # Image exists, no need to pull
+        except ImageNotFound:
             logger.info(f"Pulling Docker image: {image}...")
             client.images.pull(image)
             logger.info(f"Image '{image}' pulled successfully")
             return True, None
-
-        else:
-            error_msg = f"Invalid pull_policy: {pull_policy}"
-            logger.error(error_msg)
-            return False, error_msg
 
     except ImageNotFound:
         error_msg = f"Image '{image}' not found in registry"
@@ -188,10 +164,13 @@ def run_docker_command(
         # Replace the file path in command with container path
         # Assumes the file path is the last argument or first non-flag argument
         updated_command = []
+        file_path_resolved = file_path_obj.resolve()
         for arg in command:
             # Check if this arg is a file path (not a flag like '--json' or '-')
             try:
-                if Path(arg).exists() and Path(arg).resolve() == file_path_obj.resolve():
+                arg_path = Path(arg)
+                # Resolve both paths to handle symlinks (e.g., /var -> /private/var on macOS)
+                if arg_path.exists() and arg_path.resolve() == file_path_resolved:
                     updated_command.append(container_path)
                 else:
                     updated_command.append(arg)
@@ -199,11 +178,11 @@ def run_docker_command(
                 # Not a valid path, keep as-is (likely a flag)
                 updated_command.append(arg)
 
-        # Mount project root as /project (read-only)
+        # Mount project root as /project
         volumes = {
             str(project_root.resolve()): {
                 'bind': '/project',
-                'mode': 'ro'  # Read-only for security
+                'mode': 'rw'  # Read-write to allow tools to create temp files
             }
         }
 
@@ -214,6 +193,7 @@ def run_docker_command(
             volumes=volumes,
             working_dir='/project',
             network_mode=network_mode,
+            platform='linux/amd64',  # Force x86_64 platform for compatibility
             detach=True,
             remove=False  # We'll remove manually after getting logs
         )
