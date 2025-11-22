@@ -1,47 +1,50 @@
-"""
-Docker Runner for Static Analysis Tools
+"""Argus Docker management toolkit.
 
-Provides utilities for running Slither and Mythril in Docker containers.
+Provides utilities for operating Docker containers.
 """
 
-import logging
+from typing import Dict, Any, Optional, Tuple, List, Union
 from pathlib import Path
-from typing import Dict, Any, Optional, Tuple, List
+import logging
+
 import docker
 from docker.errors import DockerException, ImageNotFound, APIError
 
-# Set up logging
-logger = logging.getLogger(__name__)
+
+logger = logging.getLogger("argus.console")
 
 
-def check_docker_available() -> Tuple[bool, Optional[str]]:
+def docker_available() -> bool:
     """
-    Check if Docker daemon is available.
+    If Docker daemon is available.
 
     Returns:
-        Tuple of (is_available, error_message)
+        bool: True if Docker is available, False otherwise
     """
     try:
         client = docker.from_env()
         client.ping()
-        logger.debug("Docker daemon is available and responding")
-        return True, None
+        logger.debug("Docker daemon is available and responding.")
+        return True
+
     except DockerException as e:
-        error_msg = f"Docker daemon not running: {str(e)}"
-        logger.error(error_msg)
-        return False, error_msg
+        logger.error("Docker daemon not running: %s", e)
+        return False
+
+    # pylint: disable=broad-except
     except Exception as e:
-        error_msg = f"Docker error: {str(e)}"
-        logger.error(error_msg)
-        return False, error_msg
+        logger.error("Docker error: %s", e)
+        return False
 
 
-def pull_image(image: str) -> Tuple[bool, Optional[str]]:
-    """
-    Pull Docker image based on pull policy.
+def pull_image(
+    image: str,
+    pull_policy: str = "if-not-present",
+) -> Tuple[bool, Optional[str]]:
+    """Pull Docker image according to the pull policy.
 
     Args:
-        image: Docker image name (e.g., "trailofbits/eth-security-toolbox:latest")
+        image: Docker image name (e.g. "trailofbits/eth-security-toolbox:latest")
         pull_policy: "always", "if-not-present", or "never"
 
     Returns:
@@ -49,92 +52,72 @@ def pull_image(image: str) -> Tuple[bool, Optional[str]]:
     """
     try:
         client = docker.from_env()
+        match pull_policy:
+            case "never":
+                # Check if image exists locally
+                try:
+                    client.images.get(image)
+                    logger.debug("Image '%s' present locally", image)
+                    return True, None
+                except ImageNotFound:
+                    error_msg = "Image '%s' not found; pull_policy is 'never'."
+                    logger.error(error_msg, image)
+                    return False, error_msg
+            case "if-not-present":
+                # Only pull if not present
+                try:
+                    client.images.get(image)
+                    logger.debug("Image '%s' present locally", image)
+                    return True, None  # Image exists, no need to pull
+                except ImageNotFound:
+                    logger.info("Pulling Docker image: %s", image)
+                    client.images.pull(image)
+                    logger.info("Image '%s' pulled successfully", image)
+                    return True, None
+            case "always":
+                # Always pull latest
+                logger.info("Pulling Docker image: %s", image)
+                client.images.pull(image)
+                logger.info("Image '%s' pulled successfully", image)
+                return True, None
 
-        # Only pull if not present
-        try:
-            client.images.get(image)
-            logger.debug(f"Image '{image}' already present locally")
-            return True, None  # Image exists, no need to pull
-        except ImageNotFound:
-            logger.info(f"Pulling Docker image: {image}...")
-            client.images.pull(image)
-            logger.info(f"Image '{image}' pulled successfully")
-            return True, None
+            case _:
+                error_msg = f"Unrecognized pull_policy: {pull_policy}"
+                logger.error(error_msg)
+                return False, error_msg
 
     except ImageNotFound:
         error_msg = f"Image '{image}' not found in registry"
         logger.error(error_msg)
         return False, error_msg
+
     except APIError as e:
         error_msg = f"Failed to pull image: {str(e)}"
         logger.error(error_msg)
         return False, error_msg
+
+    # pylint: disable=broad-except
     except Exception as e:
         error_msg = f"Docker error: {str(e)}"
         logger.error(error_msg)
         return False, error_msg
 
 
-def get_project_root(file_path: str) -> Path:
-    """
-    Find the project root directory for a contract file.
-
-    Looks for common project indicators (package.json, hardhat.config.js, etc.)
-    going up from the file's directory.
-
-    Args:
-        file_path: Absolute path to contract file
-
-    Returns:
-        Path to project root directory
-    """
-    current = Path(file_path).parent
-
-    # Common project root indicators
-    indicators = [
-        "hardhat.config.js",
-        "hardhat.config.ts",
-        "package.json",
-        "foundry.toml",
-        "truffle-config.js",
-        "contracts"  # Directory name
-    ]
-
-    # Walk up the directory tree
-    max_depth = 10  # Prevent infinite loop
-    for _ in range(max_depth):
-        # Check for indicators
-        for indicator in indicators:
-            if (current / indicator).exists():
-                return current
-
-        # Move up one level
-        parent = current.parent
-        if parent == current:  # Reached root
-            break
-        current = parent
-
-    # If no project root found, use the contracts directory parent
-    return Path(file_path).parent
-
-
-def run_docker_command(
+def run_docker(
     image: str,
-    command: List[str],
+    command: Optional[Union[str, List[str]]],
     project_root: Path,
-    file_path: str,
     timeout: int,
     network_mode: str = "none",
-    remove_container: bool = True
+    remove_container: bool = True,
 ) -> Dict[str, Any]:
     """
     Run a command in a Docker container.
 
     Args:
         image: Docker image name
-        command: Command to run (list of strings)
+        command: Command to run i.e. str, list of strings, None
         project_root: Project root directory to mount
-        file_path: Absolute path to target file (for relative path calculation)
         timeout: Execution timeout in seconds
         network_mode: Docker network mode (default: "none" for security)
         remove_container: Whether to remove container after execution
@@ -142,98 +125,81 @@ def run_docker_command(
     Returns:
         Dict with:
             - success (bool): Whether execution succeeded
-            - output (str): stdout from container
+            - stdout (str): stdout from container
             - stderr (str): stderr from container
             - exit_code (int): Container exit code
     """
     try:
         client = docker.from_env()
 
-        # Calculate relative path from project root to file
-        file_path_obj = Path(file_path)
-        try:
-            relative_path = file_path_obj.relative_to(project_root)
-        except ValueError:
-            # File is not under project root, use parent directory
-            project_root = file_path_obj.parent
-            relative_path = file_path_obj.name
-
-        # Container path
-        container_path = f"/project/{relative_path}"
-
-        # Replace the file path in command with container path
-        # Assumes the file path is the last argument or first non-flag argument
-        updated_command = []
-        file_path_resolved = file_path_obj.resolve()
-        for arg in command:
-            # Check if this arg is a file path (not a flag like '--json' or '-')
-            try:
-                arg_path = Path(arg)
-                # Resolve both paths to handle symlinks (e.g., /var -> /private/var on macOS)
-                if arg_path.exists() and arg_path.resolve() == file_path_resolved:
-                    updated_command.append(container_path)
-                else:
-                    updated_command.append(arg)
-            except (OSError, ValueError):
-                # Not a valid path, keep as-is (likely a flag)
-                updated_command.append(arg)
-
-        # Mount project root as /project
+        # Mount project root as /project (read-only)
         volumes = {
             str(project_root.resolve()): {
-                'bind': '/project',
-                'mode': 'rw'  # Read-write to allow tools to create temp files
+                "bind": "/project",
+                "mode": "ro",  # Read-only for security
             }
         }
 
-        # Run container
+        # Run container with command as-is
         container = client.containers.run(
             image,
-            command=updated_command,
+            command=command,
             volumes=volumes,
-            working_dir='/project',
+            working_dir="/project",
             network_mode=network_mode,
             platform='linux/amd64',  # Force x86_64 platform for compatibility
             detach=True,
-            remove=False  # We'll remove manually after getting logs
+            remove=False,  # will remove manually after getting logs
         )
 
         try:
             # Wait for container to finish with timeout
-            logger.debug(f"Waiting for container to finish (timeout: {timeout}s)")
-            result = container.wait(timeout=timeout)
+            logger.debug("Waiting for container to finish (timeout: %s)", timeout)
+            res = container.wait(timeout=timeout)
 
-            # Get logs
-            stdout = container.logs(stdout=True, stderr=False).decode('utf-8', errors='ignore')
-            stderr = container.logs(stdout=False, stderr=True).decode('utf-8', errors='ignore')
+            # Fetch logs
+            stdout = container.logs(stdout=True, stderr=False).decode(
+                "utf-8",
+                errors="ignore",
+            )
+            stderr = container.logs(stdout=False, stderr=True).decode(
+                "utf-8",
+                errors="ignore",
+            )
 
-            exit_code = result.get('StatusCode', -1)
-
-            logger.debug(f"Container exited with code: {exit_code}")
+            exit_code = res.get("StatusCode", -1)
+            logger.debug("Container exited with code: %s", exit_code)
 
             return {
                 "success": exit_code == 0,
-                "output": stdout,
+                "stdout": stdout,
                 "stderr": stderr,
-                "exit_code": exit_code
+                "exit_code": exit_code,
             }
 
-        except Exception as timeout_error:
+        # pylint: disable=broad-except
+        except Exception as e:
             # Handle timeout or other errors during container execution
-            logger.error(f"Container execution error: {str(timeout_error)}")
+            logger.error("Container execution error: %s", e)
             # Try to get partial logs
             try:
-                stdout = container.logs(stdout=True, stderr=False).decode('utf-8', errors='ignore')
-                stderr = container.logs(stdout=False, stderr=True).decode('utf-8', errors='ignore')
+                stdout = container.logs(stdout=True, stderr=False).decode(
+                    "utf-8",
+                    errors="ignore",
+                )
+                stderr = container.logs(stdout=False, stderr=True).decode(
+                    "utf-8",
+                    errors="ignore",
+                )
             except Exception:
                 stdout = ""
-                stderr = f"Container timeout after {timeout}s: {str(timeout_error)}"
+                stderr = f"Container timeout after {timeout} seconds."
 
             return {
                 "success": False,
-                "output": stdout,
+                "stdout": stdout,
                 "stderr": stderr,
-                "exit_code": -1
+                "exit_code": -1,
             }
 
         finally:
@@ -241,33 +207,34 @@ def run_docker_command(
             if remove_container:
                 try:
                     container.remove(force=True)
-                    logger.debug("Container removed successfully")
-                except Exception as cleanup_error:
-                    logger.warning(f"Failed to remove container: {str(cleanup_error)}")
+                    logger.debug("Container removed successfully.")
+                except Exception as e:
+                    logger.warning("Failed to remove container: %s", e)
 
     except docker.errors.ContainerError as e:
-        logger.error(f"Container error: {str(e)}")
+        logger.error("Container error: %s", e)
         return {
             "success": False,
-            "output": "",
+            "stdout": "",
             "stderr": str(e),
-            "exit_code": e.exit_status
+            "exit_code": e.exit_status,
         }
 
     except APIError as e:
-        logger.error(f"Docker API error: {str(e)}")
+        logger.error("Docker API error: %s", e)
         return {
             "success": False,
-            "output": "",
+            "stdout": "",
             "stderr": f"Docker API error: {str(e)}",
-            "exit_code": -1
+            "exit_code": -1,
         }
 
+    # pylint: disable=broad-except
     except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}")
+        logger.error("Unexpected error: %s", e)
         return {
             "success": False,
-            "output": "",
+            "stdout": "",
             "stderr": f"Unexpected error: {str(e)}",
-            "exit_code": -1
+            "exit_code": -1,
         }

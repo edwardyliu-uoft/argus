@@ -1,5 +1,5 @@
 """Package for Argus core."""
 
-from .config import ArgusConfig, config
+from .config import ArgusConfig, conf
 
-__all__ = ["ArgusConfig", "config"]
+__all__ = ["ArgusConfig", "conf"]

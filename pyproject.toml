@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "argus"
 version = "0.1.0"
-description = "A smart contract security scanning tool"
+description = "A smart contract security tool"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
@@ -29,7 +29,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest>=7.4.0", "pytest-cov>=4.1.0", "pytest-asyncio>=0.21.0"]
+test = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "pytest-asyncio>=0.23.0",
+    "httpx>=0.28.1",
+]
 dev = [
     "argus[test]",
     "pylint>=4.0.3",
