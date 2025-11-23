@@ -511,3 +511,132 @@ async def test_tool_list_details(mcp_server):
             assert time_tool is not None
             assert time_tool.description is not None
             assert "time" in time_tool.description.lower()
+
+            # Find mythril tool
+            mythril_tool = next((t for t in tools.tools if t.name == "mythril"), None)
+            assert mythril_tool is not None
+            assert mythril_tool.description is not None
+            assert "mythril" in mythril_tool.description.lower()
+
+            # Find slither tool
+            slither_tool = next((t for t in tools.tools if t.name == "slither"), None)
+            assert slither_tool is not None
+            assert slither_tool.description is not None
+            assert "slither" in slither_tool.description.lower()
+
+
+# Unit tests for mythril and slither tool functions
+@pytest.mark.asyncio
+async def test_mythril_tool_function():
+    """Test mythril tool function calls run with correct arguments."""
+    from unittest.mock import patch
+    from argus.services.mcp.tools import mythril
+
+    with patch("argus.services.mcp.tools.run") as mock_run:
+        mock_run.return_value = {"success": True, "output": "test output"}
+
+        command = "analyze"
+        args = ["--verbose", "test.sol"]
+
+        result = await mythril(command, args)
+
+        mock_run.assert_called_once_with("mythril", command, args)
+        assert result == {"success": True, "output": "test output"}
+
+
+@pytest.mark.asyncio
+async def test_mythril_with_empty_args():
+    """Test mythril with empty argument list."""
+    from unittest.mock import patch
+    from argus.services.mcp.tools import mythril
+
+    with patch("argus.services.mcp.tools.run") as mock_run:
+        mock_run.return_value = {"success": True, "output": ""}
+
+        command = "version"
+        args = []
+
+        result = await mythril(command, args)
+
+        mock_run.assert_called_once_with("mythril", command, args)
+        assert result == {"success": True, "output": ""}
+
+
+@pytest.mark.asyncio
+async def test_slither_tool_function():
+    """Test slither tool function calls run with correct arguments."""
+    from unittest.mock import patch
+    from argus.services.mcp.tools import slither
+
+    with patch("argus.services.mcp.tools.run") as mock_run:
+        mock_run.return_value = {"success": True, "output": "test output"}
+
+        command = "analyze"
+        args = ["--json", "test.sol"]
+
+        result = await slither(command, args)
+
+        mock_run.assert_called_once_with("slither", command, args)
+        assert result == {"success": True, "output": "test output"}
+
+
+@pytest.mark.asyncio
+async def test_slither_with_empty_args():
+    """Test slither with empty argument list."""
+    from unittest.mock import patch
+    from argus.services.mcp.tools import slither
+
+    with patch("argus.services.mcp.tools.run") as mock_run:
+        mock_run.return_value = {"success": True, "output": ""}
+
+        command = "version"
+        args = []
+
+        result = await slither(command, args)
+
+        mock_run.assert_called_once_with("slither", command, args)
+        assert result == {"success": True, "output": ""}
+
+
+@pytest.mark.asyncio
+async def test_mythril_error_handling():
+    """Test mythril handles errors from run function."""
+    from unittest.mock import patch
+    from argus.services.mcp.tools import mythril
+
+    with patch("argus.services.mcp.tools.run") as mock_run:
+        mock_run.return_value = {
+            "success": False,
+            "output": "",
+            "error": "Tool 'mythril' not found."
+        }
+
+        command = "analyze"
+        args = ["test.sol"]
+
+        result = await mythril(command, args)
+
+        assert result["success"] is False
+        assert "not found" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_slither_error_handling():
+    """Test slither handles errors from run function."""
+    from unittest.mock import patch
+    from argus.services.mcp.tools import slither
+
+    with patch("argus.services.mcp.tools.run") as mock_run:
+        mock_run.return_value = {
+            "success": False,
+            "output": "",
+            "error": "Tool 'slither' not found."
+        }
+
+        command = "analyze"
+        args = ["test.sol"]
+
+        result = await slither(command, args)
+
+        assert result["success"] is False
+        assert "not found" in result["error"]
