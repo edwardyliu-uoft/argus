@@ -20,6 +20,7 @@ import json
 # PHASE 1: INITIALIZATION & DISCOVERY
 # =============================================================================
 
+
 def tools_info_prompt() -> str:
     """Return MCP tool schemas for Slither and Mythril.
 
@@ -278,10 +279,12 @@ Return ONLY valid JSON, no additional text.
 def tool_selection_prompt(contract_data: dict, semantic_findings: list) -> str:
     """Generate prompt for LLM to decide which static analysis tools to run."""
     # Get contract file paths for tool calling (use relative paths for Docker compatibility)
-    contract_paths = "\n".join([
-        f"- {name}: {data.get('relative_path', data.get('path', 'unknown'))}"
-        for name, data in contract_data.items()
-    ])
+    contract_paths = "\n".join(
+        [
+            f"- {name}: {data.get('relative_path', data.get('path', 'unknown'))}"
+            for name, data in contract_data.items()
+        ]
+    )
 
     return f"""
 You are a smart contract security analyzer with access to static analysis tools. Analyze the contracts and USE the tools to find vulnerabilities.

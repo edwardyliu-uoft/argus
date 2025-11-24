@@ -10,9 +10,9 @@ from typing import List, Dict, Any
 from google import genai
 from google.genai import types
 
-from ..base import BaseLLMProvider
+from argus.llm.provider import BaseLLMProvider
 
-logger = logging.getLogger("argus.console")
+_logger = logging.get_logger("argus.console")
 
 
 class GeminiProvider(BaseLLMProvider):
@@ -111,7 +111,9 @@ class GeminiProvider(BaseLLMProvider):
         for _ in range(max_iterations):
             try:
                 response = self.client.models.generate_content(
-                    model=self.config.get("llm.gemini.model"), contents=contents, config=config
+                    model=self.config.get("llm.gemini.model"),
+                    contents=contents,
+                    config=config,
                 )
 
                 # Check if response is valid
@@ -134,21 +136,23 @@ class GeminiProvider(BaseLLMProvider):
                     for part in parts:
                         if hasattr(part, "function_call") and part.function_call:
                             fc = part.function_call
-                            logger.info("    [Tool] %s(...)", fc.name)
+                            _logger.info("    [Tool] %s(...)", fc.name)
 
                             # Execute the tool
                             result = await self._execute_tool(fc.name, dict(fc.args))
 
                             # Truncate large results to avoid token limits
-                            max_length = self.config.get("llm.gemini.max_tool_result_length", 50000)
+                            max_length = self.config.get(
+                                "llm.gemini.max_tool_result_length", 50000
+                            )
                             if len(result) > max_length:
                                 original_length = len(result)
                                 truncated = result[:max_length]
                                 result = f"{truncated}\n\n[Result truncated due to size. Original length: {original_length} characters]"
-                                logger.warning(
+                                _logger.warning(
                                     "    Tool result truncated from %d to %d characters",
                                     original_length,
-                                    max_length
+                                    max_length,
                                 )
 
                             # Create function response part
@@ -179,7 +183,7 @@ class GeminiProvider(BaseLLMProvider):
                     return final_text if final_text else "Empty response from Gemini"
 
             except Exception as e:
-                logger.error("    LLM call failed: %s", e)
+                _logger.error("    LLM call failed: %s", e)
                 raise
 
         # Max iterations reached
@@ -201,7 +205,9 @@ class GeminiProvider(BaseLLMProvider):
             )
 
             response = self.client.models.generate_content(
-                model=self.config.get("llm.gemini.model"), contents=prompt, config=config
+                model=self.config.get("llm.gemini.model"),
+                contents=prompt,
+                config=config,
             )
 
             # Extract text from response
@@ -216,5 +222,5 @@ class GeminiProvider(BaseLLMProvider):
             return final_text if final_text else "Empty response from Gemini"
 
         except Exception as e:
-            logger.error("    LLM call failed: %s", e)
+            _logger.error("    LLM call failed: %s", e)
             raise

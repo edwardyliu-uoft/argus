@@ -10,9 +10,9 @@ import logging
 from typing import List, Dict, Any
 from anthropic import Anthropic
 
-from ..base import BaseLLMProvider
+from argus.llm.provider import BaseLLMProvider
 
-logger = logging.getLogger("argus.console")
+_logger = logging.get_logger("argus.console")
 
 
 class AnthropicProvider(BaseLLMProvider):
@@ -77,23 +77,25 @@ class AnthropicProvider(BaseLLMProvider):
                     # Execute tools
                     tool_results = []
                     for tool_use in tool_uses:
-                        logger.info(
+                        _logger.info(
                             "    [Tool] %s(%s...)",
                             tool_use.name,
-                            json.dumps(tool_use.input, indent=2)[:100]
+                            json.dumps(tool_use.input, indent=2)[:100],
                         )
                         result = await self._execute_tool(tool_use.name, tool_use.input)
 
                         # Truncate large results to avoid token limits
-                        max_length = self.config.get("llm.anthropic.max_tool_result_length", 50000)
+                        max_length = self.config.get(
+                            "llm.anthropic.max_tool_result_length", 50000
+                        )
                         if len(result) > max_length:
                             original_length = len(result)
                             truncated = result[:max_length]
                             result = f"{truncated}\n\n[Result truncated due to size. Original length: {original_length} characters]"
-                            logger.warning(
+                            _logger.warning(
                                 "    Tool result truncated from %d to %d characters",
                                 original_length,
-                                max_length
+                                max_length,
                             )
 
                         tool_results.append(
@@ -121,7 +123,7 @@ class AnthropicProvider(BaseLLMProvider):
                     return final_text
 
             except Exception as e:
-                logger.error("    LLM call failed: %s", e)
+                _logger.error("    LLM call failed: %s", e)
                 raise
 
         # Max iterations reached
@@ -152,5 +154,5 @@ class AnthropicProvider(BaseLLMProvider):
             return final_text
 
         except Exception as e:
-            logger.error("    LLM call failed: %s", e)
+            _logger.error("    LLM call failed: %s", e)
             raise

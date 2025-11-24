@@ -5,7 +5,7 @@ This module provides a factory function to create the appropriate
 LLM provider based on configuration.
 """
 
-from .base import BaseLLMProvider
+from .provider import BaseLLMProvider
 
 
 def get_llm_provider(provider_name) -> BaseLLMProvider:

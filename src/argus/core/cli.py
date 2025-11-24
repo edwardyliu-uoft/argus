@@ -2,14 +2,19 @@
 Argus CLI - Command-line interface for running security analysis
 """
 
-import asyncio
-import sys
+from importlib.metadata import version, PackageNotFoundError
 from pathlib import Path
-import argparse
 import logging
+import sys
+import asyncio
+import click
 
-from argus.core.orchestrator.orchestrator import ArgusOrchestrator
-from argus.core.config import conf
+from argus.core import ArgusOrchestrator
+
+try:
+    __version__ = version("argus")
+except PackageNotFoundError:
+    __version__ = "0.1.0"  # fallback
 
 
 def setup_logging(verbose: bool = False):
@@ -20,7 +25,7 @@ def setup_logging(verbose: bool = False):
     logging.basicConfig(
         level=level,
         format="%(message)s",
-        handlers=[logging.StreamHandler(sys.stdout)]
+        handlers=[logging.StreamHandler(sys.stdout)],
     )
 
     # Set argus.console logger
@@ -28,113 +33,108 @@ def setup_logging(verbose: bool = False):
     logger.setLevel(level)
 
 
-async def run_analysis(project_path: str, verbose: bool = False) -> int:
-    """Run Argus security analysis on a project.
-
-    Args:
-        project_path: Path to the Hardhat project
-        verbose: Enable verbose logging
-
-    Returns:
-        Exit code (0 for success, 1 for failure)
-    """
+@click.group()
+@click.version_option(version=__version__, prog_name="argus")
+@click.option("-v", "--verbose", is_flag=True, help="Enable verbose logging")
+@click.pass_context
+def cli(ctx, verbose):
+    """Argus CLI."""
+    ctx.ensure_object(dict)
+    ctx.obj["verbose"] = verbose
     setup_logging(verbose)
 
+
+@cli.command()
+@click.argument("project_root", type=click.Path(exists=True))
+@click.pass_context
+async def analyze(ctx, project_root):
+    """Analyze a project at PROJECT_ROOT."""
+
+    exit_code = asyncio.run(_analyze(project_root, ctx.obj["verbose"]))
+    ctx.exit(exit_code)
+
+
+async def _analyze(project_root: str, verbose: bool) -> int:
+    logger = logging.getLogger("argus.console")
+    logger.info(f"Analyzing project at: {project_root}")
+
     # Validate project path
-    project = Path(project_path).resolve()
+    project = Path(project_root).resolve()
     if not project.exists():
-        print(f"Error: Project path does not exist: {project}")
+        logger.error(f"Project path does not exist: {project}")
         return 1
-
     if not project.is_dir():
-        print(f"Error: Project path is not a directory: {project}")
+        logger.error(f"Project path is not a directory: {project}")
         return 1
 
+    # Create and run orchestrator
     try:
-        # Create and run orchestrator
-        orchestrator = ArgusOrchestrator(str(project))
+        orchestrator = ArgusOrchestrator(project.as_posix())
         result = await orchestrator.run()
 
         if result.get("success"):
-            print("\nAnalysis completed successfully")
-            print(f"   Contracts analyzed: {result.get('contracts_analyzed', 0)}")
-            print(f"   Duration: {result.get('duration', 0):.1f}s")
+            logger.info("\nAnalysis completed successfully")
+            logger.info(f"\tContracts analyzed: {result.get('contracts_analyzed', 0)}")
+            logger.info(f"\tDuration: {result.get('duration', 0):.1f}s")
             return 0
         else:
-            print(f"\nAnalysis failed: {result.get('error', 'Unknown error')}")
+            logger.error(f"\nAnalysis failed: {result.get('error', 'Unknown error')}")
             return 1
 
     except KeyboardInterrupt:
-        print("\n\nAnalysis interrupted by user")
-        return 1
+        logger.info("Analysis interrupted by user.")
+        return -1
+
     except Exception as e:
-        print(f"\nUnexpected error: {e}")
+        logger.error(f"Unexpected error: {e}")
         if verbose:
             import traceback
+
             traceback.print_exc()
         return 1
 
 
-def main():
-    """Main CLI entry point."""
-    parser = argparse.ArgumentParser(
-        description="Argus - Smart Contract Security Analysis",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Analyze a Hardhat project
-  argus analyze ./my-project
+@cli.command()
+@click.argument("name")
+@click.argument("args", nargs=-1)
+@click.pass_context
+def tool(ctx, name, args):
+    """Execute a tool given NAME and ARGS."""
+    logger = logging.getLogger("argus.console")
+    logger.info(f"Running MCP tool: {name}")
+    logger.debug(f"Tool arguments: {' '.join(args)}")
+    # TODO: Implement tool execution logic
 
-  # Analyze with verbose output
-  argus analyze ./my-project --verbose
 
-  # Analyze the test project
-  argus analyze examples/test-project
-        """
-    )
+@cli.command()
+@click.argument("name")
+@click.pass_context
+def resource(ctx, name):
+    """Access a resource by NAME."""
+    logger = logging.getLogger("argus.console")
+    logger.info(f"Accessing MCP resource: {name}")
+    # TODO: Implement resource access logic
 
-    subparsers = parser.add_subparsers(dest="command", help="Command to run")
 
-    # Analyze command
-    analyze_parser = subparsers.add_parser(
-        "analyze",
-        help="Run security analysis on a Hardhat project"
-    )
-    analyze_parser.add_argument(
-        "project_path",
-        type=str,
-        help="Path to the Hardhat project to analyze"
-    )
-    analyze_parser.add_argument(
-        "-v", "--verbose",
-        action="store_true",
-        help="Enable verbose logging"
-    )
+@cli.command()
+@click.option(
+    "--generator",
+    default="generator",
+    help="Generator to use for generation",
+)
+@click.argument("analysis_report", type=click.Path(exists=True))
+@click.pass_context
+def generate(ctx, generator, analysis_report):
+    """Generate tests using GENERATOR based on ANALYSIS_REPORT."""
+    logger = logging.getLogger("argus.console")
+    logger.info(f"Generating tests with generator: {generator}")
+    logger.debug(f"Using analysis report: {analysis_report}")
+    # TODO: Implement generation logic
 
-    # Config command
-    subparsers.add_parser(
-        "config",
-        help="Show current configuration"
-    )
 
-    args = parser.parse_args()
-
-    if not args.command:
-        parser.print_help()
-        return 1
-
-    if args.command == "analyze":
-        exit_code = asyncio.run(run_analysis(args.project_path, args.verbose))
-        sys.exit(exit_code)
-
-    elif args.command == "config":
-        print("Current Argus Configuration:")
-        print("-" * 40)
-        # Show key config values
-        print(f"LLM Provider: {conf.get('orchestrator.llm', 'anthropic')}")
-        print(f"MCP Server: {conf.get('server.host', '127.0.0.1')}:{conf.get('server.port', 8000)}")
-        print(f"Output Dir: {conf.get('output.directory', 'argus')}")
-        return 0
+def main() -> None:
+    """Entry point for CLI."""
+    cli()
 
 
 if __name__ == "__main__":
