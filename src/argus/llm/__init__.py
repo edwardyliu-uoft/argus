@@ -30,12 +30,12 @@ def get_llm_provider(provider_name) -> BaseLLMProvider:
     if provider_name == "anthropic":
         from .providers.anthropic import AnthropicProvider
 
-        return AnthropicProvider(config)
+        return AnthropicProvider()
 
     elif provider_name == "gemini":
         from .providers.gemini import GeminiProvider
 
-        return GeminiProvider(config)
+        return GeminiProvider()
 
     else:
         raise ValueError(
