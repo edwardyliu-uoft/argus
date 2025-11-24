@@ -42,7 +42,7 @@ def tools_info_prompt() -> str:
                     "args": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "Command-line arguments. First arg is target file path, followed by optional flags like --detect, --exclude, --json, etc.",
+                        "description": "Command-line arguments. First arg is target file path (relative to project root), followed by optional flags like --detect, --exclude, --json, etc.",
                     },
                     "kwargs": {
                         "type": "object",
@@ -66,7 +66,7 @@ def tools_info_prompt() -> str:
                     "args": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "Command-line arguments. First arg should be subcommand ('analyze'), followed by target file, then optional flags like --max-depth, --execution-timeout, etc.",
+                        "description": "Command-line arguments. First arg should be subcommand ('analyze'), followed by target file (relative to project root), then optional flags like --max-depth, --execution-timeout, etc.",
                     },
                     "kwargs": {
                         "type": "object",
@@ -277,9 +277,9 @@ Return ONLY valid JSON, no additional text.
 
 def tool_selection_prompt(contract_data: dict, semantic_findings: list) -> str:
     """Generate prompt for LLM to decide which static analysis tools to run."""
-    # Get contract file paths for tool calling
+    # Get contract file paths for tool calling (use relative paths for Docker compatibility)
     contract_paths = "\n".join([
-        f"- {name}: {data.get('path', 'unknown')}"
+        f"- {name}: {data.get('relative_path', data.get('path', 'unknown'))}"
         for name, data in contract_data.items()
     ])
 
@@ -300,6 +300,7 @@ You are a smart contract security analyzer with access to static analysis tools.
 3. Provide a consolidated summary
 
 **Analysis Guidelines**:
+- Contract paths are relative to the project root - use them as-is in tool calls
 - Run slither on all contracts (fast, comprehensive)
 - Run mythril on contracts with complex logic, fund handling, or access control
 - Focus on high/medium severity issues
