@@ -21,6 +21,12 @@ class ArgusConfig:
         else:
             self.config = self.get_default_config()
 
+        # Ensure workdir is an absolute path
+        if self.config.get("workdir", None):
+            self.config["workdir"] = Path(self.config["workdir"]).resolve().as_posix()
+        else:
+            self.config["workdir"] = Path.cwd().as_posix()
+
     @staticmethod
     def get_default_config() -> Dict[str, Any]:
         """Return default configuration."""
@@ -41,47 +47,39 @@ class ArgusConfig:
                     "timeout": 300,
                 },
             },
-            "tools": {
-                "mythril": {
-                    "timeout": 300,
-                    "format": "json",
-                    "docker": {
-                        "image": "mythril/myth:latest",
-                        "network_mode": "none",
-                        "remove_containers": True,
+            "server": {
+                "host": "127.0.0.1",
+                "port": 8000,
+                "mount_path": "/mcp",
+                "tools": {
+                    "mythril": {
+                        "timeout": 300,
+                        "outform": "json",
+                        "docker": {
+                            "image": "mythril/myth:latest",
+                            "network_mode": "bridge",
+                            "remove_containers": True,
+                        },
                     },
-                },
-                "slither": {
-                    "timeout": 300,
-                    "format": "json",
-                    "docker": {
-                        "image": "trailofbits/eth-security-toolbox:latest",
-                        "network_mode": "bridge",
-                        "remove_containers": True,
+                    "slither": {
+                        "timeout": 300,
+                        "docker": {
+                            "image": "trailofbits/eth-security-toolbox:latest",
+                            "network_mode": "bridge",
+                            "remove_containers": True,
+                        },
                     },
                 },
             },
-            "services": {
-                "mcp": {
-                    "host": "127.0.0.1",
-                    "port": 8000,
-                    "mount_path": "/mcp",
-                },
-                "langchain": {
-                    "llms": ["anthropic", "gemini"],
-                    "framework": "hardhat",
-                },
-                "generator": {
-                    "llm": "gemini",
-                    "framework": "hardhat",
-                },
+            "generator": {
+                "llm": "gemini",
+                "framework": "hardhat",
             },
             "output": {
                 "directory": "argus",
                 "level": "debug",
             },
-            "workdir": ".",
-            "mode": "generator",
+            "workdir": Path.cwd().as_posix(),
         }
 
     def get(self, key_path: str, default=None):

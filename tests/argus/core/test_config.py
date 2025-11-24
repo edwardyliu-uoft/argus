@@ -1,8 +1,9 @@
 """Unit tests for configuration loading and validation."""
 
+from pathlib import Path
 import json
 import pytest
-from pathlib import Path
+
 from argus.core.config import ArgusConfig, initialize
 
 
@@ -14,11 +15,10 @@ class TestArgusConfig:
         config = ArgusConfig.get_default_config()
 
         assert "llm" in config
-        assert "tools" in config
-        assert "services" in config
+        assert "server" in config
+        assert "generator" in config
         assert "output" in config
         assert "workdir" in config
-        assert "mode" in config
 
         # Verify LLM config structure (nested by provider)
         assert "anthropic" in config["llm"]
@@ -29,14 +29,17 @@ class TestArgusConfig:
         assert "max_retries" in config["llm"]["anthropic"]
         assert "timeout" in config["llm"]["anthropic"]
 
-        # Verify tools config structure
-        assert "mythril" in config["tools"]
-        assert "slither" in config["tools"]
+        # Verify server config structure
+        assert "host" in config["server"]
+        assert "port" in config["server"]
+        assert "mount_path" in config["server"]
+        assert "tools" in config["server"]
+        assert "mythril" in config["server"]["tools"]
+        assert "slither" in config["server"]["tools"]
 
-        # Verify services config structure
-        assert "mcp" in config["services"]
-        assert "langchain" in config["services"]
-        assert "generator" in config["services"]
+        # Verify generator config structure
+        assert "llm" in config["generator"]
+        assert "framework" in config["generator"]
 
         # Verify output config structure
         assert "directory" in config["output"]
@@ -58,23 +61,43 @@ class TestArgusConfig:
         assert config["llm"]["gemini"]["model"] == "gemini-2.5-flash"
         assert config["llm"]["gemini"]["api_key"] == "GEMINI_API_KEY"
 
-        # Test tools config
-        assert config["tools"]["mythril"]["timeout"] == 300
-        assert config["tools"]["mythril"]["format"] == "json"
-        assert config["tools"]["slither"]["timeout"] == 300
-        assert config["tools"]["slither"]["format"] == "json"
+        # Test server config
+        assert config["server"]["host"] == "127.0.0.1"
+        assert config["server"]["port"] == 8000
+        assert config["server"]["mount_path"] == "/mcp"
+        assert config["server"]["tools"]["mythril"]["timeout"] == 300
+        assert config["server"]["tools"]["mythril"]["outform"] == "json"
+        assert (
+            config["server"]["tools"]["mythril"]["docker"]["image"]
+            == "mythril/myth:latest"
+        )
+        assert (
+            config["server"]["tools"]["mythril"]["docker"]["network_mode"] == "bridge"
+        )
+        assert (
+            config["server"]["tools"]["mythril"]["docker"]["remove_containers"] is True
+        )
+        assert config["server"]["tools"]["slither"]["timeout"] == 300
+        assert (
+            config["server"]["tools"]["slither"]["docker"]["image"]
+            == "trailofbits/eth-security-toolbox:latest"
+        )
+        assert (
+            config["server"]["tools"]["slither"]["docker"]["network_mode"] == "bridge"
+        )
+        assert (
+            config["server"]["tools"]["slither"]["docker"]["remove_containers"] is True
+        )
 
-        # Test services config
-        assert config["services"]["mcp"]["host"] == "127.0.0.1"
-        assert config["services"]["mcp"]["port"] == 8000
-        assert config["services"]["generator"]["llm"] == "gemini"
-        assert config["services"]["generator"]["framework"] == "hardhat"
+        # Test generator config
+        assert config["generator"]["llm"] == "gemini"
+        assert config["generator"]["framework"] == "hardhat"
 
         # Test output config
         assert config["output"]["directory"] == "argus"
         assert config["output"]["level"] == "debug"
-        assert config["workdir"] == "."
-        assert config["mode"] == "generator"
+
+        assert config["workdir"] == Path.cwd().as_posix()
 
     def test_init_with_no_config_path(self):
         """Test initialization with no config path uses defaults."""
@@ -115,33 +138,51 @@ class TestArgusConfig:
                     "timeout": 600,
                 },
             },
-            "tools": {
-                "mythril": {"timeout": 400, "format": "text"},
-                "slither": {"timeout": 500, "format": "text"},
+            "server": {
+                "host": "localhost",
+                "port": 9000,
+                "mount_path": "/custom",
+                "tools": {
+                    "mythril": {
+                        "timeout": 400,
+                        "outform": "text",
+                        "docker": {
+                            "image": "custom/mythril:v1",
+                            "network_mode": "host",
+                            "remove_containers": False,
+                        },
+                    },
+                    "slither": {
+                        "timeout": 500,
+                        "docker": {
+                            "image": "custom/slither:v1",
+                            "network_mode": "host",
+                            "remove_containers": False,
+                        },
+                    },
+                },
             },
-            "services": {
-                "mcp": {"host": "localhost", "port": 9000},
+            "generator": {
+                "llm": "anthropic",
+                "framework": "foundry",
             },
             "output": {"directory": "custom_output", "level": "info"},
-            "workdir": "/custom/path",
-            "mode": "orchestrator",
+            "workdir": "H:/custom/path",
         }
 
         config_file.write_text(json.dumps(test_config))
-
         config = ArgusConfig(config_path=str(config_file))
-
         assert config.config == test_config
         assert config.config["llm"]["anthropic"]["provider"] == "anthropic"
         assert config.config["llm"]["gemini"]["model"] == "gemini-pro"
         assert config.config["output"]["directory"] == "custom_output"
-        assert config.config["mode"] == "orchestrator"
+        assert config.config["generator"]["llm"] == "anthropic"
 
     def test_get_simple_key(self):
         """Test getting a simple top-level key."""
         config = ArgusConfig()
 
-        assert config.get("workdir") == "."
+        assert config.get("workdir") == Path.cwd().as_posix()
 
     def test_get_nested_key_single_level(self):
         """Test getting a nested key with dot notation (one level)."""
@@ -161,11 +202,11 @@ class TestArgusConfig:
         assert config.get("llm.anthropic.model") == "claude-sonnet-4-5-20250929"
         assert config.get("llm.anthropic.max_retries") == 3
         assert config.get("llm.gemini.provider") == "gemini"
-        assert config.get("tools.mythril.timeout") == 300
-        assert config.get("tools.slither.format") == "json"
+        assert config.get("server.tools.mythril.timeout") == 300
+        assert config.get("server.tools.mythril.outform") == "json"
         assert config.get("output.directory") == "argus"
-        assert config.get("services.mcp.host") == "127.0.0.1"
-        assert config.get("services.generator.llm") == "gemini"
+        assert config.get("server.host") == "127.0.0.1"
+        assert config.get("generator.llm") == "gemini"
 
     def test_get_nonexistent_key_returns_none(self):
         """Test getting a non-existent key returns None."""
@@ -199,10 +240,10 @@ class TestArgusConfig:
         """Test getting a partial path that points to a dict."""
         config = ArgusConfig()
 
-        tools_config = config.get("tools")
-        assert isinstance(tools_config, dict)
-        assert "mythril" in tools_config
-        assert "slither" in tools_config
+        server_tools_config = config.get("server.tools")
+        assert isinstance(server_tools_config, dict)
+        assert "mythril" in server_tools_config
+        assert "slither" in server_tools_config
 
     def test_get_with_custom_config(self, tmp_path):
         """Test get method with custom loaded config."""
@@ -296,14 +337,17 @@ class TestConfigInitialize:
                     "model": "test-model",
                 }
             },
-            "mode": "test_mode",
+            "generator": {
+                "llm": "anthropic",
+            },
         }
         config_file.write_text(json.dumps(test_config))
 
         config = initialize()
 
+        assert config.config.pop("workdir") is not None
         assert config.config == test_config
-        assert config.get("mode") == "test_mode"
+        assert config.get("generator.llm") == "anthropic"
         assert config.get("llm.anthropic.model") == "test-model"
 
     def test_initialize_with_argus_config_json(self, tmp_path, monkeypatch):
@@ -319,14 +363,17 @@ class TestConfigInitialize:
                     "model": "config-test-model",
                 }
             },
-            "mode": "config_test_mode",
+            "generator": {
+                "llm": "gemini",
+            },
         }
         config_file.write_text(json.dumps(test_config))
 
         config = initialize()
 
+        assert config.config.pop("workdir") is not None
         assert config.config == test_config
-        assert config.get("mode") == "config_test_mode"
+        assert config.get("generator.llm") == "gemini"
         assert config.get("llm.gemini.model") == "config-test-model"
 
     def test_initialize_prefers_argus_json_over_argus_config_json(
@@ -340,14 +387,14 @@ class TestConfigInitialize:
         # Create both config files
         argus_json = tmp_path / "argus.json"
         argus_json_config = {
-            "mode": "from_argus_json",
+            "generator": {"llm": "anthropic"},
             "llm": {"anthropic": {"model": "json-model"}},
         }
         argus_json.write_text(json.dumps(argus_json_config))
 
         argus_config_json = tmp_path / "argus.config.json"
         argus_config_json_config = {
-            "mode": "from_argus_config_json",
+            "generator": {"llm": "gemini"},
             "llm": {"anthropic": {"model": "config-json-model"}},
         }
         argus_config_json.write_text(json.dumps(argus_config_json_config))
@@ -355,7 +402,7 @@ class TestConfigInitialize:
         config = initialize()
 
         # Should use argus.json
-        assert config.get("mode") == "from_argus_json"
+        assert config.get("generator.llm") == "anthropic"
         assert config.get("llm.anthropic.model") == "json-model"
 
     def test_initialize_with_invalid_json_in_argus_json(self, tmp_path, monkeypatch):
@@ -383,7 +430,7 @@ class TestConfigInitialize:
 
         # Create valid argus.config.json
         argus_config_json = tmp_path / "argus.config.json"
-        valid_config = {"mode": "backup_config"}
+        valid_config = {"generator": {"llm": "gemini"}}
         argus_config_json.write_text(json.dumps(valid_config))
 
         # Should raise error when trying to parse argus.json
@@ -400,16 +447,16 @@ class TestConfigInitialize:
 
         # Create config in parent directory (should not be found)
         parent_config = tmp_path / "argus.json"
-        parent_config.write_text(json.dumps({"mode": "parent"}))
+        parent_config.write_text(json.dumps({"generator": {"llm": "anthropic"}}))
 
         # Create config in current directory
         subdir_config = subdir / "argus.json"
-        subdir_config.write_text(json.dumps({"mode": "subdir"}))
+        subdir_config.write_text(json.dumps({"generator": {"llm": "gemini"}}))
 
         config = initialize()
 
         # Should find the config in current directory
-        assert config.get("mode") == "subdir"
+        assert config.get("generator.llm") == "gemini"
 
     def test_initialize_returns_argus_config_instance(self, tmp_path, monkeypatch):
         """Test initialize() returns an ArgusConfig instance."""

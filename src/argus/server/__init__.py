@@ -1,4 +1,4 @@
-"""Package for Argus MCP service."""
+"""Package for Argus MCP Server."""
 
 from .server import start, stop
 
