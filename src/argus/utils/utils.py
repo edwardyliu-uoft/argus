@@ -1,12 +1,12 @@
 """Helper functions for file operations and data processing."""
 
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Union
 from pathlib import Path
 import logging
 import json
 
 
-logger = logging.getLogger("argus.console")
+_logger = logging.getLogger("argus.console")
 
 
 def find_project_root(filepath: str) -> Path:
@@ -93,7 +93,7 @@ def read_file(file: str) -> str:
 
     # pylint: disable=broad-except
     except Exception as e:
-        logger.warning("Warning: Could not read %s: %s", file, e)
+        _logger.warning("Warning: Could not read %s: %s", file, e)
         return ""
 
 
@@ -153,8 +153,8 @@ def parse_json_llm(message: str) -> Dict:
     try:
         return json.loads(message)
     except json.JSONDecodeError as e:
-        logger.error("Error parsing JSON from LLM: %s", e)
-        logger.error("Message was: %s", message[:200])
+        _logger.error("Error parsing JSON from LLM: %s", e)
+        _logger.error("Message was: %s", message[:200])
         return {}
 
 
@@ -177,7 +177,7 @@ def project_is_hardhat(project_root: str) -> bool:
         if possible_file.exists():
             return True
 
-    logger.info("Missing proof of hardhat project: %s", possible_files)
+    _logger.info("Missing proof of hardhat project: %s", possible_files)
     return False
 
 
@@ -196,3 +196,41 @@ def format_duration(seconds: float) -> str:
     if minutes > 0:
         return f"{minutes}m {secs}s"
     return f"{secs}s"
+
+
+def conf_get(config: dict, key_path: str, default=None):
+    """Get configuration value using dot notation.
+
+    Args:
+        config: Configuration dictionary
+        key_path: Dot notation key path
+        default: Default value if key not found
+
+    Returns:
+        Configuration value or default
+
+    Example: config.get('llm.model')
+    """
+    keys = key_path.split(".")
+    value = config
+    for key in keys:
+        if isinstance(value, dict) and key in value:
+            value = value[key]
+        else:
+            return default
+    return value
+
+
+def str2dict(candidate: str) -> Union[Dict[str, any], str]:
+    """
+    Convert input string to dictionary.
+
+    Args:
+        candidate: string
+    Returns:
+        Parsed as dictionary if applicable.
+    """
+    try:
+        return json.loads(candidate)
+    except json.JSONDecodeError:
+        return candidate
