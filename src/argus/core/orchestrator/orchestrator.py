@@ -26,6 +26,7 @@ from argus.utils.utils import (
     parse_json_llm,
 )
 from argus.core.orchestrator import prompts
+from argus.server import server as mcp_server
 
 logger = logging.getLogger("argus.console")
 
@@ -80,7 +81,7 @@ class ArgusOrchestrator:
         self.state = OrchestrationState()
 
         # Initialize LLM provider
-        llm_provider_name = self.config.get("services.orchestrator.llm", "anthropic")
+        llm_provider_name = self.config.get("orchestrator.llm", "anthropic")
         self.llm = get_llm_provider(llm_provider_name)
         self.llm.initialize_client()
 
@@ -88,6 +89,15 @@ class ArgusOrchestrator:
         output_dir_name = self.config.get("output.directory", "argus")
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.output_dir = self.project_path / output_dir_name / timestamp
+
+        # Start MCP server for LLM tool access
+        mcp_host = self.config.get("server.host", "127.0.0.1")
+        mcp_port = self.config.get("server.port", 8000)
+        self.mcp_server = mcp_server.start(
+            host=mcp_host,
+            port=mcp_port
+        )
+        logger.info(f"Started MCP server at http://{mcp_host}:{mcp_port}/mcp")
 
         logger.info(f"Initialized Argus Orchestrator for {self.project_path}")
         logger.info(f"Output directory: {self.output_dir}")
@@ -115,29 +125,30 @@ class ArgusOrchestrator:
             # Phase 4: Static Analysis
             await self.phase4_static_analysis()
 
-            # Phase 5: Endpoint Extraction
-            await self.phase5_endpoint_extraction()
+            # TODO: Uncomment when ready to test remaining phases
+            # # Phase 5: Endpoint Extraction
+            # await self.phase5_endpoint_extraction()
 
-            # Phase 6: Test Generation & Execution
-            await self.phase6_test_generation()
+            # # Phase 6: Test Generation & Execution
+            # await self.phase6_test_generation()
 
-            # Phase 7: Report Generation
-            await self.phase7_report_generation()
+            # # Phase 7: Report Generation
+            # await self.phase7_report_generation()
 
             # Summary
             duration = (datetime.now() - self.state.start_time).total_seconds()
             logger.info("=" * 80)
             logger.info(f"Analysis complete in {duration:.1f}s")
-            logger.info(f"Report: {self.state.report_path}")
+            # logger.info(f"Report: {self.state.report_path}")
             logger.info("=" * 80)
 
             return {
                 "success": True,
                 "duration": duration,
-                "report_path": str(self.state.report_path),
+                # "report_path": str(self.state.report_path),
                 "contracts_analyzed": len(self.state.contracts),
-                "vulnerabilities_found": self._count_vulnerabilities(),
-                "tests_generated": len(self.state.generated_tests),
+                # "vulnerabilities_found": self._count_vulnerabilities(),
+                # "tests_generated": len(self.state.generated_tests),
                 "errors": self.state.errors,
             }
 
@@ -149,6 +160,12 @@ class ArgusOrchestrator:
                 "error": str(e),
                 "errors": self.state.errors,
             }
+        finally:
+            # Cleanup: stop MCP server
+            if self.mcp_server:
+                logger.info("Stopping MCP server...")
+                self.mcp_server.stop()
+                logger.info("MCP server stopped")
 
     # =========================================================================
     # PHASE 1: INITIALIZATION & DISCOVERY
@@ -286,16 +303,34 @@ class ArgusOrchestrator:
                 code=code
             )
 
-            # TODO: Call LLM for semantic analysis
-            # response = await self.llm.generate_text(prompt)
-            # findings = parse_json_llm(response)
-            # self.state.file_semantic_findings[contract_name] = findings.get("findings", [])
+            # Log the prompt being sent (for debugging)
+            logger.debug("=" * 80)
+            logger.debug(f"PROMPT SENT TO LLM (Phase 2 - {contract_name}):")
+            logger.debug("=" * 80)
+            logger.debug(prompt[:500] + "..." if len(prompt) > 500 else prompt)
+            logger.debug("=" * 80)
 
-            # For now, initialize empty findings
-            # TODO: REMOVE THIS WHEN LLM IS INTEGRATED
-            self.state.file_semantic_findings[contract_name] = []
+            # Call LLM for semantic analysis
+            response = self.llm.call_simple(prompt)
 
-            logger.info(f"Completed analysis of {contract_name}")
+            # Log the raw LLM response for debugging
+            logger.info("=" * 80)
+            logger.info(f"LLM RESPONSE (Phase 2 - {contract_name}):")
+            logger.info("=" * 80)
+            logger.info(response)
+            logger.info("=" * 80)
+
+            # Parse findings from response
+            try:
+                findings_data = parse_json_llm(response)
+                self.state.file_semantic_findings[contract_name] = findings_data.get("findings", [])
+                logger.info(f"Successfully parsed {len(self.state.file_semantic_findings[contract_name])} findings for {contract_name}")
+            except Exception as e:
+                logger.warning(f"Failed to parse LLM response as JSON for {contract_name}: {e}")
+                # Fallback to empty findings
+                self.state.file_semantic_findings[contract_name] = []
+
+            logger.info(f"Completed analysis of {contract_name}: {len(self.state.file_semantic_findings[contract_name])} findings")
 
         except Exception as e:
             logger.error(f"Failed to analyze {contract_path.name}: {e}")
@@ -344,16 +379,33 @@ class ArgusOrchestrator:
                 contracts=contract_names
             )
 
-            # TODO: Call LLM for project-level analysis
-            # response = await self.llm.generate_text(prompt)
-            # findings = parse_json_llm(response)
-            # self.state.project_semantic_findings = findings.get("findings", [])
+            # Log the prompt being sent (for debugging)
+            logger.debug("=" * 80)
+            logger.debug("PROMPT SENT TO LLM (Phase 3 - Project-level):")
+            logger.debug("=" * 80)
+            logger.debug(prompt[:500] + "..." if len(prompt) > 500 else prompt)
+            logger.debug("=" * 80)
 
-            # For now, initialize empty findings
-            # TODO: REMOVE THIS WHEN LLM IS INTEGRATED
-            self.state.project_semantic_findings = []
+            # Call LLM for project-level analysis
+            response = self.llm.call_simple(prompt)
 
-            logger.info("Project-level analysis complete")
+            # Log the raw LLM response for debugging
+            logger.info("=" * 80)
+            logger.info("LLM RESPONSE (Phase 3 - Project-level):")
+            logger.info("=" * 80)
+            logger.info(response)
+            logger.info("=" * 80)
+
+            # Parse findings from response
+            try:
+                findings_data = parse_json_llm(response)
+                self.state.project_semantic_findings = findings_data.get("findings", [])
+                logger.info(f"Successfully parsed {len(self.state.project_semantic_findings)} project-level findings")
+            except Exception as e:
+                logger.warning(f"Failed to parse LLM response as JSON for project-level analysis: {e}")
+                self.state.project_semantic_findings = []
+
+            logger.info(f"Project-level analysis complete: {len(self.state.project_semantic_findings)} findings")
 
             # Perform cross-contract analysis if multiple contracts exist
             if len(self.state.contracts) > 1:
@@ -375,16 +427,33 @@ class ArgusOrchestrator:
                 # Generate cross-contract analysis prompt
                 prompt = prompts.cross_contract_analysis_prompt(contracts_data)
 
-                # TODO: Call LLM for cross-contract analysis
-                # response = await self.llm.generate_text(prompt)
-                # findings = parse_json_llm(response)
-                # self.state.cross_contract_findings = findings.get("findings", [])
+                # Log the prompt being sent (for debugging)
+                logger.debug("=" * 80)
+                logger.debug("PROMPT SENT TO LLM (Phase 3 - Cross-contract):")
+                logger.debug("=" * 80)
+                logger.debug(prompt[:500] + "..." if len(prompt) > 500 else prompt)
+                logger.debug("=" * 80)
 
-                # For now, initialize empty findings
-                # TODO: REMOVE THIS WHEN LLM IS INTEGRATED
-                self.state.cross_contract_findings = []
+                # Call LLM for cross-contract analysis
+                response = self.llm.call_simple(prompt)
 
-                logger.info("Cross-contract analysis complete")
+                # Log the raw LLM response for debugging
+                logger.info("=" * 80)
+                logger.info("LLM RESPONSE (Phase 3 - Cross-contract):")
+                logger.info("=" * 80)
+                logger.info(response)
+                logger.info("=" * 80)
+
+                # Parse findings from response
+                try:
+                    findings_data = parse_json_llm(response)
+                    self.state.cross_contract_findings = findings_data.get("findings", [])
+                    logger.info(f"Successfully parsed {len(self.state.cross_contract_findings)} cross-contract findings")
+                except Exception as e:
+                    logger.warning(f"Failed to parse LLM response as JSON for cross-contract analysis: {e}")
+                    self.state.cross_contract_findings = []
+
+                logger.info(f"Cross-contract analysis complete: {len(self.state.cross_contract_findings)} findings")
             else:
                 logger.info("Only one contract found, skipping cross-contract analysis")
 
@@ -433,7 +502,7 @@ class ArgusOrchestrator:
 
             # Combine all semantic findings for context
             all_semantic_findings = []
-            for contract_name, findings in self.state.file_semantic_findings.items():
+            for findings in self.state.file_semantic_findings.values():
                 all_semantic_findings.extend(findings)
             all_semantic_findings.extend(self.state.project_semantic_findings)
             all_semantic_findings.extend(self.state.cross_contract_findings)
@@ -446,51 +515,81 @@ class ArgusOrchestrator:
 
             logger.info(f"Invoking LLM with tool access for {len(self.state.contracts)} contracts")
 
-            # TODO: Call LLM with native tool use
+            # Log the prompt being sent (for debugging)
+            logger.debug("=" * 80)
+            logger.debug("PROMPT SENT TO LLM:")
+            logger.debug("=" * 80)
+            logger.debug(prompt[:500] + "..." if len(prompt) > 500 else prompt)
+            logger.debug("=" * 80)
+
+            # Call LLM with native tool use via MCP
             # The LLM will:
             # 1. Analyze the semantic findings and contract data
             # 2. Decide which tools to run on which contracts
-            # 3. Call the tools directly via MCP
+            # 3. Call the tools directly via MCP server
             # 4. Interpret and consolidate the results
             # 5. Return comprehensive analysis
-            #
-            # response = await self.llm.generate_with_tools(
-            #     prompt=prompt,
-            #     tools=prompts.tools_info_prompt()  # Slither and Mythril tool definitions
-            # )
-            # analysis_results = parse_json_llm(response.content)
+            response = await self.llm.call_with_tools(
+                prompt=prompt,
+                tools=prompts.tools_info_prompt(),  # Slither and Mythril tool definitions
+                max_iterations=20  # Allow LLM to run multiple tools
+            )
 
-            # For now, create placeholder structure
-            # TODO: REMOVE THIS WHEN LLM IS INTEGRATED
-            analysis_results = {
-                "tool_executions": [],
-                "findings": [],
-                "summary": "Placeholder: LLM will provide analysis summary"
-            }
+            # Log the raw LLM response for debugging
+            logger.info("=" * 80)
+            logger.info("LLM RESPONSE (Phase 4 - Static Analysis):")
+            logger.info("=" * 80)
+            logger.info(response)
+            logger.info("=" * 80)
 
-            # Extract and store results from LLM response
-            # The LLM's response will include which tools it ran and their results
-            for contract in self.state.contracts:
-                contract_name = contract.name
-
-                # Initialize results storage
-                self.state.static_analysis_results[contract_name] = {
-                    "tools_used": [],  # e.g., ["slither", "mythril"]
+            # Parse the LLM's final response
+            # Expected structure: {"tool_executions": [...], "findings": [...], "summary": "..."}
+            try:
+                analysis_results = parse_json_llm(response)
+                logger.info("Successfully parsed LLM response as JSON")
+            except Exception as e:
+                logger.warning(f"Failed to parse LLM response as JSON: {e}")
+                # Fallback to raw text response
+                analysis_results = {
+                    "tool_executions": [],
                     "findings": [],
-                    "analysis": "Placeholder"
+                    "summary": response
                 }
 
-            # Log what the LLM decided and executed
-            logger.info(f"LLM completed static analysis")
-            logger.info(f"Tool executions: {len(analysis_results.get('tool_executions', []))}")
+            # Extract and store results from LLM response
+            self._process_static_analysis_results(analysis_results)
 
-            total_findings = len(analysis_results.get("findings", []))
+            # Log what the LLM decided and executed
+            logger.info("LLM completed static analysis")
+            tool_executions = analysis_results.get('tool_executions', [])
+            logger.info(f"Tool executions: {len(tool_executions)}")
+
+            # Log details of each tool execution
+            for i, execution in enumerate(tool_executions, 1):
+                logger.info(f"  {i}. Tool: {execution.get('tool', 'unknown')}, "
+                          f"Contract: {execution.get('contract', 'unknown')}, "
+                          f"Findings: {len(execution.get('findings', []))}")
+
+            total_findings = sum(
+                len(results.get("findings", []))
+                for results in self.state.static_analysis_results.values()
+            )
             logger.info(f"Phase 4 complete: {total_findings} static analysis findings")
+
+            # Log findings per contract
+            for contract_name, results in self.state.static_analysis_results.items():
+                logger.info(f"  {contract_name}: {len(results.get('findings', []))} findings "
+                          f"(tools: {', '.join(results.get('tools_used', []))})")
 
         except Exception as e:
             logger.error(f"Phase 4 failed: {e}", exc_info=True)
             self.state.errors.append(f"Phase 4: {str(e)}")
             raise
+        finally:
+            # Cleanup: close MCP client session
+            logger.info("Cleaning up MCP client session...")
+            await self.llm.cleanup_mcp_session()
+            logger.info("MCP client session closed")
 
     # =========================================================================
     # PHASE 5: ENDPOINT EXTRACTION
@@ -567,3 +666,77 @@ class ArgusOrchestrator:
         except Exception as e:
             logger.error(f"Failed to extract endpoints from {contract_path.name}: {e}")
             self.state.errors.append(f"Phase 5 ({contract_path.name}): {str(e)}")
+
+    # =========================================================================
+    # HELPER METHODS
+    # =========================================================================
+
+    def _process_static_analysis_results(self, analysis_results: Dict[str, Any]) -> None:
+        """Process LLM tool execution results and populate state.
+
+        Expected analysis_results structure from LLM:
+        {
+            "tool_executions": [
+                {
+                    "tool": "slither",
+                    "contract": "MyContract.sol",
+                    "findings": [...],
+                },
+                {
+                    "tool": "mythril",
+                    "contract": "MyContract.sol",
+                    "findings": [...],
+                }
+            ],
+            "findings": [
+                {
+                    "contract": "MyContract.sol",
+                    "severity": "high",
+                    "issue": "...",
+                    "tool": "slither"
+                }
+            ],
+            "summary": "Overall analysis summary"
+        }
+
+        Args:
+            analysis_results: Parsed LLM response with tool execution results
+        """
+        # Initialize results storage for all contracts
+        for contract in self.state.contracts:
+            contract_name = contract.name
+            self.state.static_analysis_results[contract_name] = {
+                "tools_used": [],
+                "findings": [],
+                "analysis": ""
+            }
+
+        # Process tool executions
+        tool_executions = analysis_results.get("tool_executions", [])
+        for execution in tool_executions:
+            tool_name = execution.get("tool", "unknown")
+            contract_name = execution.get("contract", "unknown")
+
+            # Find matching contract in state
+            if contract_name in self.state.static_analysis_results:
+                # Track which tools were used
+                if tool_name not in self.state.static_analysis_results[contract_name]["tools_used"]:
+                    self.state.static_analysis_results[contract_name]["tools_used"].append(tool_name)
+
+                # Store tool-specific findings
+                tool_findings = execution.get("findings", [])
+                self.state.static_analysis_results[contract_name]["findings"].extend(tool_findings)
+
+        # Process consolidated findings from LLM
+        all_findings = analysis_results.get("findings", [])
+        for finding in all_findings:
+            contract_name = finding.get("contract", "unknown")
+            if contract_name in self.state.static_analysis_results:
+                # Avoid duplicates
+                if finding not in self.state.static_analysis_results[contract_name]["findings"]:
+                    self.state.static_analysis_results[contract_name]["findings"].append(finding)
+
+        # Store overall summary
+        summary = analysis_results.get("summary", "")
+        for contract_name in self.state.static_analysis_results:
+            self.state.static_analysis_results[contract_name]["analysis"] = summary

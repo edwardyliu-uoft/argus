@@ -32,8 +32,7 @@ class ArgusConfig:
         """Return default configuration."""
         return {
             "orchestrator": {
-                "llm_provider": "anthropic",
-                "output_directory": "argus",
+                "llm": "gemini",
             },
             "llm": {
                 "anthropic": {  # "anthropic"
@@ -42,6 +41,7 @@ class ArgusConfig:
                     "api_key": "ANTHROPIC_API_KEY",  # Environment variable for API key
                     "max_retries": 3,
                     "timeout": 300,
+                    "max_tool_result_length": 50000,  # Max characters for tool results
                 },
                 "gemini": {
                     "provider": "gemini",
@@ -49,6 +49,7 @@ class ArgusConfig:
                     "api_key": "GEMINI_API_KEY",  # Environment variable for API key
                     "max_retries": 3,
                     "timeout": 300,
+                    "max_tool_result_length": 50000,  # Max characters for tool results
                 },
             },
             "server": {

@@ -5,7 +5,13 @@ Defines the interface that all providers must implement.
 
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any
+import json
+import logging
+from mcp import ClientSession
+from mcp.client.streamable_http import streamablehttp_client
 from argus.core.config import conf
+
+logger = logging.getLogger("argus.console")
 
 
 class BaseLLMProvider(ABC):
@@ -20,6 +26,8 @@ class BaseLLMProvider(ABC):
         """
         self.config = conf
         self.client = None
+        self._mcp_session = None
+        self._mcp_context = None
 
     @abstractmethod
     def initialize_client(self):
@@ -57,7 +65,7 @@ class BaseLLMProvider(ABC):
         pass
 
     @abstractmethod
-    def call_with_tools(
+    async def call_with_tools(
         self, prompt: str, tools: List[Dict[str, Any]], max_iterations: int = 10
     ) -> str:
         """
@@ -93,9 +101,9 @@ class BaseLLMProvider(ABC):
         """
         pass
 
-    def _execute_tool(self, tool_name: str, tool_input: Dict[str, Any]) -> str:
+    async def _execute_tool(self, tool_name: str, tool_input: Dict[str, Any]) -> str:
         """
-        Execute a tool by calling the MCP server function.
+        Execute a tool by calling the MCP server via the MCP client.
         This is shared across all providers.
 
         Args:
@@ -104,6 +112,95 @@ class BaseLLMProvider(ABC):
 
         Returns:
             Tool result as JSON string
+
+        Raises:
+            RuntimeError: If MCP server call fails
         """
-        #TODO: implement this function when MCP server code is ready
-        raise NotImplementedError("Unimplementated until new MCP server code is available.")
+        try:
+            # Initialize MCP session if not already done (lazy initialization)
+            if self._mcp_session is None:
+                await self._initialize_mcp_session()
+
+            # Call the tool using the persistent session
+            result = await self._call_mcp_tool(tool_name, tool_input)
+            return json.dumps(result)
+
+        except Exception as e:
+            raise RuntimeError(f"Tool execution error: {e}")
+
+    async def _initialize_mcp_session(self) -> None:
+        """
+        Initialize persistent MCP client session.
+        Called lazily on first tool execution.
+        """
+        # Get MCP server endpoint from config
+        mcp_host = self.config.get("server.host", "127.0.0.1")
+        mcp_port = self.config.get("server.port", 8000)
+        mount_path = self.config.get("server.mount_path", "/mcp")
+        mcp_url = f"http://{mcp_host}:{mcp_port}{mount_path}"
+
+        # Create persistent connection context
+        self._mcp_context = streamablehttp_client(mcp_url)
+        read, write, _ = await self._mcp_context.__aenter__()
+
+        # Create and initialize session
+        self._mcp_session = ClientSession(read, write)
+        await self._mcp_session.__aenter__()
+        await self._mcp_session.initialize()
+
+    async def _call_mcp_tool(
+        self, tool_name: str, tool_input: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Call MCP tool using the persistent session.
+
+        Args:
+            tool_name: Tool name to call
+            tool_input: Tool input arguments
+
+        Returns:
+            Tool result dictionary
+        """
+        if self._mcp_session is None:
+            raise RuntimeError("MCP session not initialized")
+
+        # Call the tool
+        result = await self._mcp_session.call_tool(tool_name, tool_input)
+
+        # Extract content from result
+        if hasattr(result, 'content') and result.content:
+            # MCP returns list of content blocks
+            content_blocks = []
+            for content in result.content:
+                if hasattr(content, 'text'):
+                    content_blocks.append(content.text)
+
+            return {
+                "content": content_blocks,
+                "raw": str(result)
+            }
+        else:
+            return {"content": [str(result)], "raw": str(result)}
+
+    async def cleanup_mcp_session(self) -> None:
+        """
+        Close the MCP client session and cleanup resources.
+        Should be called when tool calling is complete.
+        """
+        if self._mcp_session is not None:
+            try:
+                await self._mcp_session.__aexit__(None, None, None)
+            except Exception as e:
+                # Log but don't fail on cleanup errors
+                logger.warning("MCP session cleanup error: %s", e)
+            finally:
+                self._mcp_session = None
+
+        if self._mcp_context is not None:
+            try:
+                await self._mcp_context.__aexit__(None, None, None)
+            except Exception as e:
+                # Log but don't fail on cleanup errors
+                logger.warning("MCP context cleanup error: %s", e)
+            finally:
+                self._mcp_context = None

@@ -5,11 +5,14 @@ Implements the BaseLLMProvider interface for Google's Gemini models.
 """
 
 import os
+import logging
 from typing import List, Dict, Any
 from google import genai
 from google.genai import types
 
 from ..base import BaseLLMProvider
+
+logger = logging.getLogger("argus.console")
 
 
 class GeminiProvider(BaseLLMProvider):
@@ -83,7 +86,7 @@ class GeminiProvider(BaseLLMProvider):
 
         return fixed_schema
 
-    def call_with_tools(
+    async def call_with_tools(
         self, prompt: str, tools: List[Dict[str, Any]], max_iterations: int = 10
     ) -> str:
         """
@@ -131,10 +134,22 @@ class GeminiProvider(BaseLLMProvider):
                     for part in parts:
                         if hasattr(part, "function_call") and part.function_call:
                             fc = part.function_call
-                            print(f"    [Tool] {fc.name}(...)")
+                            logger.info("    [Tool] %s(...)", fc.name)
 
                             # Execute the tool
-                            result = self._execute_tool(fc.name, dict(fc.args))
+                            result = await self._execute_tool(fc.name, dict(fc.args))
+
+                            # Truncate large results to avoid token limits
+                            max_length = self.config.get("llm.gemini.max_tool_result_length", 50000)
+                            if len(result) > max_length:
+                                original_length = len(result)
+                                truncated = result[:max_length]
+                                result = f"{truncated}\n\n[Result truncated due to size. Original length: {original_length} characters]"
+                                logger.warning(
+                                    "    Tool result truncated from %d to %d characters",
+                                    original_length,
+                                    max_length
+                                )
 
                             # Create function response part
                             tool_results_parts.append(
@@ -164,7 +179,7 @@ class GeminiProvider(BaseLLMProvider):
                     return final_text if final_text else "Empty response from Gemini"
 
             except Exception as e:
-                print(f"    ⚠️  LLM call failed: {e}")
+                logger.error("    LLM call failed: %s", e)
                 raise
 
         # Max iterations reached
@@ -201,5 +216,5 @@ class GeminiProvider(BaseLLMProvider):
             return final_text if final_text else "Empty response from Gemini"
 
         except Exception as e:
-            print(f"    ⚠️  LLM call failed: {e}")
+            logger.error("    LLM call failed: %s", e)
             raise

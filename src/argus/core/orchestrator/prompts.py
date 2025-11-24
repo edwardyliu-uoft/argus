@@ -20,46 +20,60 @@ import json
 # PHASE 1: INITIALIZATION & DISCOVERY
 # =============================================================================
 
-# TODO: align the tool descriptions with the MCP tools
 def tools_info_prompt() -> str:
+    """Return MCP tool schemas for Slither and Mythril.
+
+    These schemas match the actual tool function signatures in:
+    - argus.server.tools.slither.slither()
+    - argus.server.tools.mythril.mythril()
+    """
     return [
         {
             "name": "slither",
-            "description": "Run Slither static analysis on a Solidity file. Returns JSON with vulnerabilities found.",
+            "description": "Run Slither static analysis on Solidity files. Returns JSON with vulnerabilities found.",
             "input_schema": {
                 "type": "object",
                 "properties": {
-                    "target_file": {
+                    "command": {
                         "type": "string",
-                        "description": "Absolute path to .sol file",
+                        "description": "Slither command to execute (default: 'slither')",
+                        "default": "slither",
                     },
-                    "output_format": {
-                        "type": "string",
-                        "enum": ["json", "text"],
-                        "description": "Output format (default: json)",
-                        "default": "json",
+                    "args": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Command-line arguments. First arg is target file path, followed by optional flags like --detect, --exclude, --json, etc.",
+                    },
+                    "kwargs": {
+                        "type": "object",
+                        "description": "Reserved for future extensibility",
                     },
                 },
-                "required": ["target_file"],
+                "required": ["args"],
             },
         },
         {
             "name": "mythril",
-            "description": "Run Mythril symbolic execution on a Solidity file. Returns JSON with security issues found.",
+            "description": "Run Mythril symbolic execution on Ethereum files. Returns JSON with security issues found.",
             "input_schema": {
                 "type": "object",
                 "properties": {
-                    "target_file": {
+                    "command": {
                         "type": "string",
-                        "description": "Absolute path to .sol file",
+                        "description": "Mythril command to execute (default: 'myth')",
+                        "default": "myth",
                     },
-                    "execution_timeout": {
-                        "type": "integer",
-                        "description": "Timeout in seconds (default: 300)",
-                        "default": 300,
+                    "args": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Command-line arguments. First arg should be subcommand ('analyze'), followed by target file, then optional flags like --max-depth, --execution-timeout, etc.",
+                    },
+                    "kwargs": {
+                        "type": "object",
+                        "description": "Reserved for future extensibility",
                     },
                 },
-                "required": ["target_file"],
+                "required": ["args"],
             },
         },
     ]
@@ -263,59 +277,58 @@ Return ONLY valid JSON, no additional text.
 
 def tool_selection_prompt(contract_data: dict, semantic_findings: list) -> str:
     """Generate prompt for LLM to decide which static analysis tools to run."""
-    contracts_summary = "\n".join(
-        [
-            f"- {name}: {data.get('complexity', 'unknown')} complexity, "
-            f"{len(data.get('code', ''))} lines"
-            for name, data in contract_data.items()
-        ]
-    )
+    # Get contract file paths for tool calling
+    contract_paths = "\n".join([
+        f"- {name}: {data.get('path', 'unknown')}"
+        for name, data in contract_data.items()
+    ])
 
     return f"""
-Based on the semantic analysis findings, decide which static analysis tools should be run on each contract.
+You are a smart contract security analyzer with access to static analysis tools. Analyze the contracts and USE the tools to find vulnerabilities.
 
-**Available Tools**:
-- **slither**: Fast, comprehensive detector for common vulnerabilities (reentrancy, access control, etc.)
-- **mythril**: Symbolic execution for complex logic bugs and state manipulation issues
-
-**Contracts**:
-{contracts_summary}
+**Contracts to Analyze**:
+{contract_paths}
 
 **Semantic Analysis Findings**:
 ```json
 {json.dumps(semantic_findings, indent=2)}
 ```
 
-**Decision Criteria**:
-1. **Contract Complexity**: Simple contracts may only need Slither
-2. **Risk Indicators**: Contracts handling funds, access control, or upgrades need deeper analysis
-3. **Semantic Findings**: High-severity findings warrant both Slither and Mythril
-4. **Performance**: Mythril is slower - only use when justified
-5. **Finding Types**: Complex state bugs → Mythril; Common patterns → Slither
+**Your Task**:
+1. **RUN the slither and mythril tools** on the contracts (use tool calling)
+2. Analyze the tool outputs to identify vulnerabilities
+3. Provide a consolidated summary
 
-**Output Format** (return as JSON):
+**Analysis Guidelines**:
+- Run slither on all contracts (fast, comprehensive)
+- Run mythril on contracts with complex logic, fund handling, or access control
+- Focus on high/medium severity issues
+
+**After running the tools, return JSON**:
 ```json
 {{
-  "tool_decisions": [
+  "tool_executions": [
     {{
-      "contract": "Contract.sol",
-      "tools_to_run": ["slither", "mythril"],
-      "reasoning": "Contract handles funds and has critical access control findings",
-      "priority": "high|medium|low",
-      "estimated_time": "5-10 minutes"
+      "tool": "slither|mythril",
+      "contract": "ContractName.sol",
+      "findings": [/* parsed findings */]
     }}
   ],
-  "overall_strategy": "Brief explanation of analysis approach",
-  "skip_contracts": [
+  "findings": [
     {{
-      "contract": "TestHelper.sol",
-      "reasoning": "Test utility with no production code"
+      "contract": "ContractName.sol",
+      "severity": "high|medium|low",
+      "category": "category name",
+      "issue": "description",
+      "location": "location",
+      "tool": "slither|mythril"
     }}
-  ]
+  ],
+  "summary": "Overall analysis summary"
 }}
 ```
 
-Return ONLY valid JSON, no additional text.
+Start by running the tools on the contracts.
 """
 
 

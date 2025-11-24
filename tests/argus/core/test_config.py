@@ -172,6 +172,8 @@ class TestArgusConfig:
 
         config_file.write_text(json.dumps(test_config))
         config = ArgusConfig(config_path=str(config_file))
+        print(config.config)
+        print(test_config)
         assert config.config == test_config
         assert config.config["llm"]["anthropic"]["provider"] == "anthropic"
         assert config.config["llm"]["gemini"]["model"] == "gemini-pro"
