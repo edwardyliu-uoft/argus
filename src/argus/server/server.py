@@ -122,7 +122,9 @@ class ArgusMCPServer(Process):
             ):
                 resfunc = getattr(resmodule, funcname, None)
                 if callable(resfunc):
-                    app.resource()(resfunc)
+                    # Generate URI from function name
+                    uri = f"resource:///{resname}/{funcname}"
+                    app.resource(uri)(resfunc)
                 else:
                     _logger.warning(
                         "MCP server resource '%s'.'%s' not found in argus.server.resources",
