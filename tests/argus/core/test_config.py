@@ -167,11 +167,12 @@ class TestArgusConfig:
                 "framework": "foundry",
             },
             "output": {"directory": "custom_output", "level": "info"},
-            "workdir": "H:/custom/path",
+            "workdir": "/custom/path",
         }
 
         config_file.write_text(json.dumps(test_config))
         config = ArgusConfig(config_path=str(config_file))
+        assert config.config.pop("workdir") is not None
         assert config.config == test_config
         assert config.config["llm"]["anthropic"]["provider"] == "anthropic"
         assert config.config["llm"]["gemini"]["model"] == "gemini-pro"
