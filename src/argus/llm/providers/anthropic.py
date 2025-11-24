@@ -9,7 +9,7 @@ import json
 from typing import List, Dict, Any
 from anthropic import Anthropic
 
-from .base import BaseLLMProvider
+from ..base import BaseLLMProvider
 
 
 class AnthropicProvider(BaseLLMProvider):
@@ -34,10 +34,7 @@ class AnthropicProvider(BaseLLMProvider):
         return tools
 
     def call_with_tools(
-        self,
-        prompt: str,
-        tools: List[Dict[str, Any]],
-        max_iterations: int = 10
+        self, prompt: str, tools: List[Dict[str, Any]], max_iterations: int = 10
     ) -> str:
         """
         Call Claude with tool use capability (multi-turn conversation).
@@ -59,7 +56,7 @@ class AnthropicProvider(BaseLLMProvider):
                     model=self.config.get("llm.model"),
                     max_tokens=self.config.get("llm.max_tokens", 4096),
                     tools=converted_tools,
-                    messages=messages
+                    messages=messages,
                 )
 
                 # Check if Claude wants to use tools
@@ -77,13 +74,17 @@ class AnthropicProvider(BaseLLMProvider):
                     # Execute tools
                     tool_results = []
                     for tool_use in tool_uses:
-                        print(f"    [Tool] {tool_use.name}({json.dumps(tool_use.input, indent=2)[:100]}...)")
+                        print(
+                            f"    [Tool] {tool_use.name}({json.dumps(tool_use.input, indent=2)[:100]}...)"
+                        )
                         result = self._execute_tool(tool_use.name, tool_use.input)
-                        tool_results.append({
-                            "type": "tool_result",
-                            "tool_use_id": tool_use.id,
-                            "content": result
-                        })
+                        tool_results.append(
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": tool_use.id,
+                                "content": result,
+                            }
+                        )
 
                     # Add assistant response and tool results to messages
                     messages.append({"role": "assistant", "content": response.content})
@@ -122,7 +123,7 @@ class AnthropicProvider(BaseLLMProvider):
             response = self.client.messages.create(
                 model=self.config.get("llm.model"),
                 max_tokens=self.config.get("llm.max_tokens", 4096),
-                messages=[{"role": "user", "content": prompt}]
+                messages=[{"role": "user", "content": prompt}],
             )
 
             final_text = ""
