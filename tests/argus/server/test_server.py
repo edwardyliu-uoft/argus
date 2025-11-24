@@ -1,14 +1,17 @@
 """Comprehensive tests for Argus MCP Server."""
 
 from unittest.mock import patch
+from pathlib import Path
 import time
 import socket
 import json
+import shutil
 import pytest
 
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
+from argus.core import conf
 from argus.server import server
 
 
@@ -698,3 +701,354 @@ contract TokenTest {
 
                     assert data["exit_code"] == 0
                     assert data["container_exit_code"] == 0
+
+
+class TestFilesystemTools:
+    """Tests for filesystem tools via MCP client."""
+
+    @pytest.fixture(scope="class")
+    def mcp_server(self):
+        """Start MCP server for filesystem tool tests."""
+        host = "127.0.0.1"
+        port = find_free_port()
+        mount_path = "/mcp"
+
+        # Start server in background process
+        srv = server.start(host=host, port=port, mount_path=mount_path)
+
+        # Give server time to start and register tools
+        time.sleep(2.0)
+
+        url = f"http://{host}:{port}{mount_path}"
+
+        yield {"url": url, "server": srv}
+
+        # Cleanup
+        server.stop()
+        time.sleep(0.5)
+
+    @pytest.mark.asyncio
+    async def test_find_files_by_extension(self, mcp_server):
+        """Test find_files_by_extension tool."""
+        url = mcp_server["url"]
+
+        async with streamablehttp_client(url) as (read, write, _):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+
+                # Find Python test files in the project
+                result = await session.call_tool(
+                    "find_files_by_extension",
+                    arguments={"extension": "py", "recursive": True},
+                )
+
+                assert result is not None
+                data = json.loads(result.content[0].text)
+
+                assert data["success"] is True
+                assert data["count"] > 0  # Should find Python files in the project
+                assert len(data["files"]) > 0
+
+    @pytest.mark.asyncio
+    async def test_read_file(self, mcp_server):
+        """Test read_file tool."""
+        url = mcp_server["url"]
+
+        async with streamablehttp_client(url) as (read, write, _):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+
+                # Read the README.md file from the project
+                result = await session.call_tool(
+                    "read_file",
+                    arguments={"file_path": "README.md"},
+                )
+
+                assert result is not None
+                data = json.loads(result.content[0].text)
+
+                assert data["success"] is True
+                assert "content" in data
+                assert data["total_size"] > 0
+
+    @pytest.mark.asyncio
+    async def test_write_file(self, mcp_server, tmp_path):
+        """Test write_file tool."""
+        url = mcp_server["url"]
+
+        # Use a temp file path that will be created in workdir
+        test_filename = f"test_output_{id(tmp_path)}.txt"
+
+        async with streamablehttp_client(url) as (read, write, _):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+
+                result = await session.call_tool(
+                    "write_file",
+                    arguments={
+                        "file_path": test_filename,
+                        "content": "Test content",
+                    },
+                )
+
+                assert result is not None
+                data = json.loads(result.content[0].text)
+
+                assert data["success"] is True
+                assert data["total_size"] == 12
+
+                # Clean up - delete the file
+                try:
+
+                    test_file = (
+                        Path(conf.get("workdir", Path.cwd().as_posix())) / test_filename
+                    )
+                    if test_file.exists():
+                        test_file.unlink()
+                except Exception:
+                    pass
+
+    @pytest.mark.asyncio
+    async def test_append_file(self, mcp_server, tmp_path):
+        """Test append_file tool."""
+        url = mcp_server["url"]
+
+        # Create a temp file first
+        test_filename = f"test_log_{id(tmp_path)}.txt"
+
+        async with streamablehttp_client(url) as (read, write, _):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+
+                # Write initial content
+                await session.call_tool(
+                    "write_file",
+                    arguments={
+                        "file_path": test_filename,
+                        "content": "Line 1\n",
+                    },
+                )
+
+                # Append to the file
+                result = await session.call_tool(
+                    "append_file",
+                    arguments={
+                        "file_path": test_filename,
+                        "content": "Line 2\n",
+                    },
+                )
+
+                assert result is not None
+                data = json.loads(result.content[0].text)
+
+                assert data["success"] is True
+                assert data["appended_size"] == 7
+
+                # Verify content by reading back
+                read_result = await session.call_tool(
+                    "read_file",
+                    arguments={"file_path": test_filename},
+                )
+                read_data = json.loads(read_result.content[0].text)
+                assert "Line 1" in read_data["content"]
+                assert "Line 2" in read_data["content"]
+
+                # Clean up
+                try:
+                    test_file = (
+                        Path(conf.get("workdir", Path.cwd().as_posix())) / test_filename
+                    )
+                    if test_file.exists():
+                        test_file.unlink()
+                except Exception:
+                    pass
+
+    @pytest.mark.asyncio
+    async def test_create_directory(self, mcp_server, tmp_path):
+        """Test create_directory tool."""
+        url = mcp_server["url"]
+
+        # Use a unique temp directory name
+        test_dirname = f"test_dir_{id(tmp_path)}/nested/dir"
+
+        async with streamablehttp_client(url) as (read, write, _):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+
+                result = await session.call_tool(
+                    "create_directory",
+                    arguments={"directory_path": test_dirname},
+                )
+
+                assert result is not None
+                data = json.loads(result.content[0].text)
+
+                assert data["success"] is True
+                # Either created or already existed
+                assert "created" in data or "path" in data
+
+                # Clean up
+                try:
+                    test_dir = (
+                        Path(conf.get("workdir", Path.cwd().as_posix()))
+                        / test_dirname.split("/")[0]
+                    )
+                    if test_dir.exists():
+                        shutil.rmtree(test_dir)
+                except Exception:
+                    pass
+
+    @pytest.mark.asyncio
+    async def test_list_directory(self, mcp_server):
+        """Test list_directory tool."""
+        url = mcp_server["url"]
+
+        async with streamablehttp_client(url) as (read, write, _):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+
+                # List the src directory
+                result = await session.call_tool(
+                    "list_directory",
+                    arguments={"directory_path": "src", "recursive": False},
+                )
+
+                assert result is not None
+                data = json.loads(result.content[0].text)
+
+                assert data["success"] is True
+                assert data["count"] > 0  # Should find files/folders in src
+                assert "items" in data
+
+    @pytest.mark.asyncio
+    async def test_read_file_info(self, mcp_server):
+        """Test read_file_info tool."""
+        url = mcp_server["url"]
+
+        async with streamablehttp_client(url) as (read, write, _):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+
+                # Get info for README.md
+                result = await session.call_tool(
+                    "read_file_info",
+                    arguments={"file_path": "README.md"},
+                )
+
+                assert result is not None
+                data = json.loads(result.content[0].text)
+
+                assert data["success"] is True
+                assert data["exists"] is True
+                assert data["type"] == "file"
+                assert data["total_size"] > 0
+
+
+class TestFilesystemResources:
+    """Tests for filesystem resources via MCP client."""
+
+    @pytest.fixture(scope="class")
+    def mcp_server(self):
+        """Start MCP server for client integration tests."""
+        host = "127.0.0.1"
+        port = find_free_port()
+        mount_path = "/mcp"
+
+        # Start server in background process
+        srv = server.start(host=host, port=port, mount_path=mount_path)
+
+        # Give server time to start and register tools
+        time.sleep(2.0)
+
+        url = f"http://{host}:{port}{mount_path}"
+
+        yield {"url": url, "server": srv}
+
+        # Cleanup
+        server.stop()
+        time.sleep(0.5)
+
+    @pytest.mark.asyncio
+    async def test_list_resources_includes_filesystem(self, mcp_server):
+        """Test that filesystem resources are registered."""
+        url = mcp_server["url"]
+
+        async with streamablehttp_client(url) as (read, write, _):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+
+                resources = await session.list_resources()
+
+                assert resources is not None
+                resource_uris = [str(r.uri) for r in resources.resources]
+
+                # Check that filesystem resources are registered
+                assert any("filesystem" in uri for uri in resource_uris)
+
+    @pytest.mark.asyncio
+    async def test_get_workspace_resource(self, mcp_server):
+        """Test get_workspace resource."""
+        url = mcp_server["url"]
+
+        async with streamablehttp_client(url) as (read, write, _):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+
+                result = await session.read_resource(
+                    uri="resource:///filesystem/get_workspace"
+                )
+
+                assert result is not None
+                assert len(result.contents) > 0
+                content = result.contents[0].text
+
+                assert "Workspace:" in content
+                assert "Total:" in content
+                # Should find Python files in the project
+                assert ".py" in content or "files" in content
+
+    @pytest.mark.asyncio
+    async def test_get_project_structure_resource(
+        self,
+        mcp_server,
+    ):
+        """Test get_project_structure resource."""
+        url = mcp_server["url"]
+
+        async with streamablehttp_client(url) as (read, write, _):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+
+                result = await session.read_resource(
+                    uri="resource:///filesystem/get_project_structure"
+                )
+
+                assert result is not None
+                content = result.contents[0].text
+
+                assert "Project Structure:" in content
+                # Should show src/ directory from the argus project
+                assert "src/" in content or "Directory structure" in content
+                assert "File types:" in content
+
+    @pytest.mark.asyncio
+    async def test_get_solidity_files_resource(self, mcp_server):
+        """Test get_solidity_files resource."""
+        url = mcp_server["url"]
+
+        async with streamablehttp_client(url) as (read, write, _):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+
+                result = await session.read_resource(
+                    uri="resource:///filesystem/get_solidity_files"
+                )
+
+                assert result is not None
+                content = result.contents[0].text
+
+                # May have Solidity contracts or not in the argus project
+                assert (
+                    "Solidity Contracts:" in content
+                    or "No Solidity contracts found" in content
+                )

@@ -32,7 +32,7 @@ class ArgusConfig:
         """Return default configuration."""
         return {
             "llm": {
-                "anthropic": {  # "anthropic"
+                "anthropic": {
                     "provider": "anthropic",
                     "model": "claude-sonnet-4-5-20250929",
                     "api_key": "ANTHROPIC_API_KEY",  # Environment variable for API key
@@ -68,6 +68,26 @@ class ArgusConfig:
                             "network_mode": "bridge",
                             "remove_containers": True,
                         },
+                    },
+                    "filesystem": {
+                        "functions": [
+                            "list_directory",
+                            "find_files_by_extension",
+                            "read_file_info",
+                            "read_file",
+                            "write_file",
+                            "append_file",
+                            "create_directory",
+                        ],
+                    },
+                },
+                "resources": {
+                    "filesystem": {
+                        "functions": [
+                            "get_workspace",
+                            "get_project_structure",
+                            "get_solidity_files",
+                        ],
                     },
                 },
             },
