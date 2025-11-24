@@ -25,6 +25,10 @@ class ArgusConfig:
     def get_default_config() -> Dict[str, Any]:
         """Return default configuration."""
         return {
+            "orchestrator": {
+                "llm_provider": "anthropic",
+                "output_directory": "argus",
+            },
             "llm": {
                 "anthropic": {  # "anthropic"
                     "provider": "anthropic",

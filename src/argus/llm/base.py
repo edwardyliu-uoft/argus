@@ -5,19 +5,20 @@ Defines the interface that all providers must implement.
 
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any
+from argus.core.config import conf
 
 
 class BaseLLMProvider(ABC):
     """Abstract base class for LLM providers (Anthropic, Gemini, etc.)."""
 
-    def __init__(self, config):
+    def __init__(self):
         """
         Initialize the provider with configuration.
 
         Args:
             config: ArgusConfig instance
         """
-        self.config = config
+        self.config = conf
         self.client = None
 
     @abstractmethod
@@ -104,47 +105,5 @@ class BaseLLMProvider(ABC):
         Returns:
             Tool result as JSON string
         """
-        import asyncio
-        import json
-        from mcp_server import (
-            run_slither,
-            run_mythril,
-            generate_tests,
-            run_hardhat_tests,
-        )
-
-        # Execute the appropriate tool
-        if tool_name == "slither":
-            result = asyncio.run(
-                run_slither(
-                    tool_input["target_file"], tool_input.get("output_format", "json")
-                )
-            )
-            return json.dumps(result, indent=2)
-
-        elif tool_name == "mythril":
-            result = asyncio.run(
-                run_mythril(
-                    tool_input["target_file"], tool_input.get("execution_timeout", 300)
-                )
-            )
-            return json.dumps(result, indent=2)
-
-        elif tool_name == "generate_tests":
-            result = asyncio.run(
-                generate_tests(
-                    tool_input["contract_name"],
-                    tool_input.get("endpoints", []),
-                    tool_input.get("vulnerabilities", []),
-                    tool_input["output_path"],
-                    tool_input["test_code"],
-                )
-            )
-            return json.dumps(result, indent=2)
-
-        elif tool_name == "run_tests":
-            result = asyncio.run(run_hardhat_tests(tool_input["test_file_path"]))
-            return json.dumps(result, indent=2)
-
-        else:
-            return json.dumps({"success": False, "error": f"Unknown tool: {tool_name}"})
+        #TODO: implement this function when MCP server code is ready
+        raise NotImplementedError("Unimplementated until new MCP server code is available.")

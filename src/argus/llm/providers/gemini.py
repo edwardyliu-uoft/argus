@@ -17,7 +17,7 @@ class GeminiProvider(BaseLLMProvider):
 
     def initialize_client(self):
         """Initialize Gemini client with API key from environment."""
-        api_key_env = self.config.get("llm.api_key_env", "GEMINI_API_KEY")
+        api_key_env = self.config.get("llm.gemini.api_key", "GEMINI_API_KEY")
         api_key = os.environ.get(api_key_env)
 
         if not api_key:
@@ -73,7 +73,7 @@ class GeminiProvider(BaseLLMProvider):
 
         # Fix properties if they exist
         if "properties" in fixed_schema:
-            for prop_name, prop_def in fixed_schema["properties"].items():
+            for _, prop_def in fixed_schema["properties"].items():
                 if prop_def.get("type") == "array" and "items" not in prop_def:
                     # Add default items schema for arrays
                     prop_def["items"] = {"type": "object"}
@@ -105,10 +105,10 @@ class GeminiProvider(BaseLLMProvider):
         # Start with initial prompt
         contents = [prompt]
 
-        for iteration in range(max_iterations):
+        for _ in range(max_iterations):
             try:
                 response = self.client.models.generate_content(
-                    model=self.config.get("llm.model"), contents=contents, config=config
+                    model=self.config.get("llm.gemini.model"), contents=contents, config=config
                 )
 
                 # Check if response is valid
@@ -186,7 +186,7 @@ class GeminiProvider(BaseLLMProvider):
             )
 
             response = self.client.models.generate_content(
-                model=self.config.get("llm.model"), contents=prompt, config=config
+                model=self.config.get("llm.gemini.model"), contents=prompt, config=config
             )
 
             # Extract text from response

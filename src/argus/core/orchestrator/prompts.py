@@ -20,6 +20,51 @@ import json
 # PHASE 1: INITIALIZATION & DISCOVERY
 # =============================================================================
 
+# TODO: align the tool descriptions with the MCP tools
+def tools_info_prompt() -> str:
+    return [
+        {
+            "name": "slither",
+            "description": "Run Slither static analysis on a Solidity file. Returns JSON with vulnerabilities found.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "target_file": {
+                        "type": "string",
+                        "description": "Absolute path to .sol file",
+                    },
+                    "output_format": {
+                        "type": "string",
+                        "enum": ["json", "text"],
+                        "description": "Output format (default: json)",
+                        "default": "json",
+                    },
+                },
+                "required": ["target_file"],
+            },
+        },
+        {
+            "name": "mythril",
+            "description": "Run Mythril symbolic execution on a Solidity file. Returns JSON with security issues found.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "target_file": {
+                        "type": "string",
+                        "description": "Absolute path to .sol file",
+                    },
+                    "execution_timeout": {
+                        "type": "integer",
+                        "description": "Timeout in seconds (default: 300)",
+                        "default": 300,
+                    },
+                },
+                "required": ["target_file"],
+            },
+        },
+    ]
+
+
 def initialization_summary_prompt(contracts: list, docs: list) -> str:
     """Generate prompt for initial project discovery summary."""
     return f"""
@@ -62,6 +107,7 @@ Return ONLY valid JSON, no additional text.
 # =============================================================================
 # PHASE 2: FILE-LEVEL SEMANTIC ANALYSIS
 # =============================================================================
+
 
 def file_semantic_analysis_prompt(file_path: str, code: str) -> str:
     """Generate prompt for file-level semantic analysis."""
@@ -108,10 +154,9 @@ Return ONLY valid JSON, no additional text.
 # PHASE 3: PROJECT-LEVEL SEMANTIC ANALYSIS
 # =============================================================================
 
+
 def project_semantic_analysis_prompt(
-    readme: str,
-    all_docs: str,
-    contracts: list
+    readme: str, all_docs: str, contracts: list
 ) -> str:
     """Generate prompt for project-level semantic analysis."""
     return f"""
@@ -123,7 +168,7 @@ Analyze the entire smart contract project for alignment with high-level design.
 **Additional Documentation**:
 {all_docs}
 
-**Contracts To Analyzed**: {', '.join(contracts)}
+**Contracts To Analyzed**: {", ".join(contracts)}
 
 **Analysis Requirements**:
 1. Check if overall architecture matches README description
@@ -154,10 +199,12 @@ Return ONLY valid JSON, no additional text.
 
 def cross_contract_analysis_prompt(contracts_data: dict) -> str:
     """Generate prompt for analyzing interactions between multiple contracts."""
-    contracts_list = "\n\n".join([
-        f"**{name}**:\n```solidity\n{code}\n```"
-        for name, code in contracts_data.items()
-    ])
+    contracts_list = "\n\n".join(
+        [
+            f"**{name}**:\n```solidity\n{code}\n```"
+            for name, code in contracts_data.items()
+        ]
+    )
 
     return f"""
 Analyze interactions and dependencies between multiple smart contracts in this project.
@@ -213,13 +260,16 @@ Return ONLY valid JSON, no additional text.
 # PHASE 4: STATIC ANALYSIS (SLITHER/MYTHRIL)
 # =============================================================================
 
+
 def tool_selection_prompt(contract_data: dict, semantic_findings: list) -> str:
     """Generate prompt for LLM to decide which static analysis tools to run."""
-    contracts_summary = "\n".join([
-        f"- {name}: {data.get('complexity', 'unknown')} complexity, "
-        f"{len(data.get('code', ''))} lines"
-        for name, data in contract_data.items()
-    ])
+    contracts_summary = "\n".join(
+        [
+            f"- {name}: {data.get('complexity', 'unknown')} complexity, "
+            f"{len(data.get('code', ''))} lines"
+            for name, data in contract_data.items()
+        ]
+    )
 
     return f"""
 Based on the semantic analysis findings, decide which static analysis tools should be run on each contract.
@@ -270,8 +320,7 @@ Return ONLY valid JSON, no additional text.
 
 
 def additional_tool_recommendation_prompt(
-    initial_findings: dict,
-    contracts_analyzed: list
+    initial_findings: dict, contracts_analyzed: list
 ) -> str:
     """Generate prompt for recommending additional tools after initial analysis."""
     return f"""
@@ -282,7 +331,7 @@ Review the initial static analysis results and recommend additional analysis if 
 {json.dumps(initial_findings, indent=2)}
 ```
 
-**Contracts Analyzed**: {', '.join(contracts_analyzed)}
+**Contracts Analyzed**: {", ".join(contracts_analyzed)}
 
 **Recommendation Criteria**:
 1. **Incomplete Coverage**: Initial tools missed certain vulnerability types
@@ -322,9 +371,7 @@ Return ONLY valid JSON, no additional text.
 
 
 def static_analysis_interpretation_prompt(
-    tool_name: str,
-    raw_results: str,
-    contract_code: str
+    tool_name: str, raw_results: str, contract_code: str
 ) -> str:
     """Generate prompt for interpreting static analysis tool output."""
     return f"""
@@ -376,8 +423,7 @@ Return ONLY valid JSON, no additional text.
 
 
 def vulnerability_correlation_prompt(
-    semantic_findings: list,
-    static_findings: list
+    semantic_findings: list, static_findings: list
 ) -> str:
     """Generate prompt for identifying overlaps between analysis methods without deduplication."""
     return f"""
@@ -434,6 +480,7 @@ Return ONLY valid JSON, no additional text.
 # PHASE 5: ENDPOINT EXTRACTION
 # =============================================================================
 
+
 def endpoint_extraction_prompt(file_path: str, code: str) -> str:
     """Generate prompt for extracting contract endpoints."""
     return f"""
@@ -475,10 +522,9 @@ Return ONLY valid JSON, no additional text.
 # PHASE 6: TEST GENERATION & EXECUTION
 # =============================================================================
 
+
 def test_generation_prompt(
-    contract_name: str,
-    endpoints: list,
-    vulnerabilities: list
+    contract_name: str, endpoints: list, vulnerabilities: list
 ) -> str:
     """Generate prompt for creating test cases."""
     return f"""
@@ -528,9 +574,7 @@ describe("{contract_name} Security Tests", function() {{
 
 
 def test_failure_analysis_prompt(
-    test_code: str,
-    failure_output: str,
-    contract_code: str
+    test_code: str, failure_output: str, contract_code: str
 ) -> str:
     """Generate prompt for analyzing why a generated test failed."""
     return f"""
@@ -586,10 +630,9 @@ Return ONLY valid JSON, no additional text.
 # PHASE 7: REPORT GENERATION
 # =============================================================================
 
+
 def report_generation_prompt(
-    analysis_md: str,
-    endpoints_md: str,
-    test_results: dict
+    analysis_md: str, endpoints_md: str, test_results: dict
 ) -> str:
     """Generate prompt for final report creation."""
     return f"""

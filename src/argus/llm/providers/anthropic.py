@@ -17,7 +17,7 @@ class AnthropicProvider(BaseLLMProvider):
 
     def initialize_client(self):
         """Initialize Anthropic client with API key from environment."""
-        api_key_env = self.config.get("llm.api_key_env", "ANTHROPIC_API_KEY")
+        api_key_env = self.config.get("llm.anthropic.api_key", "ANTHROPIC_API_KEY")
         api_key = os.environ.get(api_key_env)
 
         if not api_key:
@@ -53,8 +53,8 @@ class AnthropicProvider(BaseLLMProvider):
         for _ in range(max_iterations):
             try:
                 response = self.client.messages.create(
-                    model=self.config.get("llm.model"),
-                    max_tokens=self.config.get("llm.max_tokens", 4096),
+                    model=self.config.get("llm.anthropic.model"),
+                    max_tokens=self.config.get("llm.anthropic.max_tokens", 4096),
                     tools=converted_tools,
                     messages=messages,
                 )
@@ -121,8 +121,8 @@ class AnthropicProvider(BaseLLMProvider):
         """
         try:
             response = self.client.messages.create(
-                model=self.config.get("llm.model"),
-                max_tokens=self.config.get("llm.max_tokens", 4096),
+                model=self.config.get("llm.anthropic.model"),
+                max_tokens=self.config.get("llm.anthropic.max_tokens", 4096),
                 messages=[{"role": "user", "content": prompt}],
             )
 

@@ -8,7 +8,7 @@ LLM provider based on configuration.
 from .base import BaseLLMProvider
 
 
-def get_llm_provider(config) -> BaseLLMProvider:
+def get_llm_provider(provider_name) -> BaseLLMProvider:
     """
     Factory function to create LLM provider based on configuration.
 
@@ -27,8 +27,6 @@ def get_llm_provider(config) -> BaseLLMProvider:
         >>> provider.initialize_client()
         >>> response = provider.call_simple("Hello!")
     """
-    provider_name = config.get("llm.provider", "anthropic").lower()
-
     if provider_name == "anthropic":
         from .providers.anthropic import AnthropicProvider
 
