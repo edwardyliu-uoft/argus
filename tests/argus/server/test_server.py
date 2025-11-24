@@ -1,4 +1,6 @@
+# pylint: disable=too-many-lines
 """Comprehensive tests for Argus MCP Server."""
+
 
 from unittest.mock import patch
 from pathlib import Path
@@ -217,12 +219,12 @@ class TestClientConnection:
             async with ClientSession(read, write) as session:
                 await session.initialize()
 
-                # List resources (should work even if empty)
+                # List resources
                 try:
                     resources = await session.list_resources()
                     assert resources is not None
+                # pylint: disable=broad-except
                 except Exception:
-                    # Resources may not be implemented
                     pass
 
     @pytest.mark.asyncio
@@ -234,12 +236,13 @@ class TestClientConnection:
             async with ClientSession(read, write) as session:
                 await session.initialize()
 
-                # List prompts (should work even if empty)
+                # List prompts
                 try:
                     prompts = await session.list_prompts()
                     assert prompts is not None
+
+                # pylint: disable=broad-except
                 except Exception:
-                    # Prompts may not be implemented
                     pass
 
     @pytest.mark.asyncio
@@ -805,6 +808,8 @@ class TestFilesystemTools:
                     )
                     if test_file.exists():
                         test_file.unlink()
+
+                # pylint: disable=broad-except
                 except Exception:
                     pass
 
@@ -860,6 +865,8 @@ class TestFilesystemTools:
                     )
                     if test_file.exists():
                         test_file.unlink()
+
+                # pylint: disable=broad-except
                 except Exception:
                     pass
 
@@ -895,6 +902,8 @@ class TestFilesystemTools:
                     )
                     if test_dir.exists():
                         shutil.rmtree(test_dir)
+
+                # pylint: disable=broad-except
                 except Exception:
                     pass
 
