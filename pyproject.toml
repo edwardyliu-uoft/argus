@@ -43,6 +43,9 @@ dev = [
     "mypy>=1.5.0",
 ]
 
+[project.scripts]
+argus = "argus.core.cli:main"
+
 [project.urls]
 Homepage = "https://github.com/calebchin/argus"
 Repository = "https://github.com/calebchin/argus"
