@@ -15,8 +15,9 @@ class ArgusConfig:
         Args:
             config_path: Path to config JSON file
         """
-        if config_path and Path(config_path).exists():
-            with open(config_path, encoding="utf-8") as f:
+        self.path = config_path
+        if self.path and Path(self.path).exists():
+            with open(self.path, encoding="utf-8") as f:
                 self.config = json.load(f)
         else:
             self.config = self.get_default_config()

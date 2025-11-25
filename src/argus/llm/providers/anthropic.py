@@ -12,7 +12,7 @@ from anthropic import Anthropic
 
 from argus.llm.provider import BaseLLMProvider
 
-_logger = logging.get_logger("argus.console")
+_logger = logging.getLogger("argus.console")
 
 
 class AnthropicProvider(BaseLLMProvider):

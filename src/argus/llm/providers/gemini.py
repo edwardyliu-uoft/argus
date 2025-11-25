@@ -12,7 +12,7 @@ from google.genai import types
 
 from argus.llm.provider import BaseLLMProvider
 
-_logger = logging.get_logger("argus.console")
+_logger = logging.getLogger("argus.console")
 
 
 class GeminiProvider(BaseLLMProvider):

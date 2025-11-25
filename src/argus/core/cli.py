@@ -4,12 +4,13 @@ Argus CLI - Command-line interface for running security analysis
 
 from importlib.metadata import version, PackageNotFoundError
 from pathlib import Path
-import logging
 import sys
+import logging
+import json
 import asyncio
 import click
 
-from argus.core import ArgusOrchestrator
+from argus.core import conf, ArgusOrchestrator
 
 try:
     __version__ = version("argus")
@@ -47,7 +48,7 @@ def cli(ctx, verbose):
 @cli.command()
 @click.argument("project_root", type=click.Path(exists=True))
 @click.pass_context
-async def analyze(ctx, project_root):
+def analyze(ctx, project_root):
     """Analyze a project at PROJECT_ROOT."""
 
     exit_code = asyncio.run(_analyze(project_root, ctx.obj["verbose"]))
@@ -92,6 +93,27 @@ async def _analyze(project_root: str, verbose: bool) -> int:
 
             traceback.print_exc()
         return 1
+
+
+@cli.command()
+@click.option(
+    "--key",
+    default=None,
+    help="Key to show from the configuration (dot notation)",
+)
+@click.pass_context
+def config(ctx, key):
+    """Show the identified Argus configuration."""
+    logger = logging.getLogger("argus.console")
+    logger.info("Argus configuration:\n")
+    logger.info("> Path: %s", conf.path)
+    if key:
+        logger.info("> Key: Value")
+        value = json.dumps(conf.get(key, "undefined"), indent=2)
+        logger.info(f"{key}: {value}")
+    else:
+        logger.info("> Configuration Dictionary:")
+        logger.info(json.dumps(conf.config, indent=2))
 
 
 @cli.command()

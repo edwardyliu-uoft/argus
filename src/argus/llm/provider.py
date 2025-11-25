@@ -11,7 +11,7 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 from argus.core.config import conf
 
-_logger = logging.get_logger("argus.console")
+_logger = logging.getLogger("argus.console")
 
 
 class BaseLLMProvider(ABC):
