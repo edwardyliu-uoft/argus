@@ -7,11 +7,13 @@ from abc import ABC, abstractmethod
 from typing import List, Dict, Any
 import json
 import logging
+
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
+
 from argus.core.config import conf
 
-logger = logging.getLogger("argus.console")
+_logger = logging.getLogger("argus.console")
 
 
 class BaseLLMProvider(ABC):
@@ -38,7 +40,6 @@ class BaseLLMProvider(ABC):
         Raises:
             ValueError: If API key is not found in environment
         """
-        pass
 
     @abstractmethod
     def convert_tools_format(self, tools: List[Dict[str, Any]]) -> Any:
@@ -62,11 +63,13 @@ class BaseLLMProvider(ABC):
         Returns:
             Provider-specific tool format
         """
-        pass
 
     @abstractmethod
     async def call_with_tools(
-        self, prompt: str, tools: List[Dict[str, Any]], max_iterations: int = 10
+        self,
+        prompt: str,
+        tools: List[Dict[str, Any]],
+        max_iterations: int = 10,
     ) -> str:
         """
         Call LLM with tool use capability (multi-turn conversation).
@@ -86,7 +89,6 @@ class BaseLLMProvider(ABC):
         Returns:
             Final text response from LLM
         """
-        pass
 
     @abstractmethod
     def call_simple(self, prompt: str) -> str:
@@ -99,16 +101,15 @@ class BaseLLMProvider(ABC):
         Returns:
             Text response from LLM
         """
-        pass
 
-    async def _execute_tool(self, tool_name: str, tool_input: Dict[str, Any]) -> str:
+    async def _execute_tool(self, tool_name: str, tool_args: Dict[str, Any]) -> str:
         """
         Execute a tool by calling the MCP server via the MCP client.
         This is shared across all providers.
 
         Args:
             tool_name: Name of the tool to execute
-            tool_input: Input parameters for the tool
+            tool_args: Input parameters for the tool
 
         Returns:
             Tool result as JSON string
@@ -122,11 +123,11 @@ class BaseLLMProvider(ABC):
                 await self._initialize_mcp_session()
 
             # Call the tool using the persistent session
-            result = await self._call_mcp_tool(tool_name, tool_input)
+            result = await self._call_mcp_tool(tool_name, tool_args)
             return json.dumps(result)
 
         except Exception as e:
-            raise RuntimeError(f"Tool execution error: {e}")
+            raise RuntimeError(f"Tool execution error: {e}", e) from e
 
     async def _initialize_mcp_session(self) -> None:
         """
@@ -141,6 +142,7 @@ class BaseLLMProvider(ABC):
 
         # Create persistent connection context
         self._mcp_context = streamablehttp_client(mcp_url)
+        # pylint: disable=no-member, unnecessary-dunder-call
         read, write, _ = await self._mcp_context.__aenter__()
 
         # Create and initialize session
@@ -149,14 +151,16 @@ class BaseLLMProvider(ABC):
         await self._mcp_session.initialize()
 
     async def _call_mcp_tool(
-        self, tool_name: str, tool_input: Dict[str, Any]
+        self,
+        tool_name: str,
+        tool_args: Dict[str, Any],
     ) -> Dict[str, Any]:
         """
         Call MCP tool using the persistent session.
 
         Args:
             tool_name: Tool name to call
-            tool_input: Tool input arguments
+            tool_args: Tool input arguments
 
         Returns:
             Tool result dictionary
@@ -165,20 +169,17 @@ class BaseLLMProvider(ABC):
             raise RuntimeError("MCP session not initialized")
 
         # Call the tool
-        result = await self._mcp_session.call_tool(tool_name, tool_input)
+        result = await self._mcp_session.call_tool(tool_name, tool_args)
 
         # Extract content from result
-        if hasattr(result, 'content') and result.content:
+        if hasattr(result, "content") and result.content:
             # MCP returns list of content blocks
             content_blocks = []
             for content in result.content:
-                if hasattr(content, 'text'):
+                if hasattr(content, "text"):
                     content_blocks.append(content.text)
 
-            return {
-                "content": content_blocks,
-                "raw": str(result)
-            }
+            return {"content": content_blocks, "raw": str(result)}
         else:
             return {"content": [str(result)], "raw": str(result)}
 
@@ -190,17 +191,22 @@ class BaseLLMProvider(ABC):
         if self._mcp_session is not None:
             try:
                 await self._mcp_session.__aexit__(None, None, None)
+
+            # pylint: disable=broad-except
             except Exception as e:
                 # Log but don't fail on cleanup errors
-                logger.warning("MCP session cleanup error: %s", e)
+                _logger.warning("MCP session cleanup error: %s", e)
             finally:
                 self._mcp_session = None
 
         if self._mcp_context is not None:
             try:
+                # pylint: disable=no-member
                 await self._mcp_context.__aexit__(None, None, None)
+
+            # pylint: disable=broad-except
             except Exception as e:
                 # Log but don't fail on cleanup errors
-                logger.warning("MCP context cleanup error: %s", e)
+                _logger.warning("MCP context cleanup error: %s", e)
             finally:
                 self._mcp_context = None

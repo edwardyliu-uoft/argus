@@ -5,7 +5,7 @@ This module provides a factory function to create the appropriate
 LLM provider based on configuration.
 """
 
-from .base import BaseLLMProvider
+from .provider import BaseLLMProvider
 
 
 def get_llm_provider(provider_name) -> BaseLLMProvider:
@@ -28,11 +28,13 @@ def get_llm_provider(provider_name) -> BaseLLMProvider:
         >>> response = provider.call_simple("Hello!")
     """
     if provider_name == "anthropic":
+        # pylint: disable=import-outside-toplevel
         from .providers.anthropic import AnthropicProvider
 
         return AnthropicProvider()
 
     elif provider_name == "gemini":
+        # pylint: disable=import-outside-toplevel
         from .providers.gemini import GeminiProvider
 
         return GeminiProvider()
