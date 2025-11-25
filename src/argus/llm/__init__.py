@@ -5,10 +5,10 @@ This module provides a factory function to create the appropriate
 LLM provider based on configuration.
 """
 
-from .base import BaseLLMProvider
+from .provider import BaseLLMProvider
 
 
-def get_llm_provider(config) -> BaseLLMProvider:
+def get_llm_provider(provider_name) -> BaseLLMProvider:
     """
     Factory function to create LLM provider based on configuration.
 
@@ -27,17 +27,15 @@ def get_llm_provider(config) -> BaseLLMProvider:
         >>> provider.initialize_client()
         >>> response = provider.call_simple("Hello!")
     """
-    provider_name = config.get("llm.provider", "anthropic").lower()
-
     if provider_name == "anthropic":
         from .providers.anthropic import AnthropicProvider
 
-        return AnthropicProvider(config)
+        return AnthropicProvider()
 
     elif provider_name == "gemini":
         from .providers.gemini import GeminiProvider
 
-        return GeminiProvider(config)
+        return GeminiProvider()
 
     else:
         raise ValueError(

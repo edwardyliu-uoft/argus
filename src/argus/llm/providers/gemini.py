@@ -5,11 +5,14 @@ Implements the BaseLLMProvider interface for Google's Gemini models.
 """
 
 import os
+import logging
 from typing import List, Dict, Any
 from google import genai
 from google.genai import types
 
-from ..base import BaseLLMProvider
+from argus.llm.provider import BaseLLMProvider
+
+_logger = logging.getLogger("argus.console")
 
 
 class GeminiProvider(BaseLLMProvider):
@@ -17,7 +20,7 @@ class GeminiProvider(BaseLLMProvider):
 
     def initialize_client(self):
         """Initialize Gemini client with API key from environment."""
-        api_key_env = self.config.get("llm.api_key_env", "GEMINI_API_KEY")
+        api_key_env = self.config.get("llm.gemini.api_key", "GEMINI_API_KEY")
         api_key = os.environ.get(api_key_env)
 
         if not api_key:
@@ -73,7 +76,7 @@ class GeminiProvider(BaseLLMProvider):
 
         # Fix properties if they exist
         if "properties" in fixed_schema:
-            for prop_name, prop_def in fixed_schema["properties"].items():
+            for _, prop_def in fixed_schema["properties"].items():
                 if prop_def.get("type") == "array" and "items" not in prop_def:
                     # Add default items schema for arrays
                     prop_def["items"] = {"type": "object"}
@@ -83,7 +86,7 @@ class GeminiProvider(BaseLLMProvider):
 
         return fixed_schema
 
-    def call_with_tools(
+    async def call_with_tools(
         self, prompt: str, tools: List[Dict[str, Any]], max_iterations: int = 10
     ) -> str:
         """
@@ -105,10 +108,12 @@ class GeminiProvider(BaseLLMProvider):
         # Start with initial prompt
         contents = [prompt]
 
-        for iteration in range(max_iterations):
+        for _ in range(max_iterations):
             try:
                 response = self.client.models.generate_content(
-                    model=self.config.get("llm.model"), contents=contents, config=config
+                    model=self.config.get("llm.gemini.model"),
+                    contents=contents,
+                    config=config,
                 )
 
                 # Check if response is valid
@@ -131,10 +136,24 @@ class GeminiProvider(BaseLLMProvider):
                     for part in parts:
                         if hasattr(part, "function_call") and part.function_call:
                             fc = part.function_call
-                            print(f"    [Tool] {fc.name}(...)")
+                            _logger.info("    [Tool] %s(...)", fc.name)
 
                             # Execute the tool
-                            result = self._execute_tool(fc.name, dict(fc.args))
+                            result = await self._execute_tool(fc.name, dict(fc.args))
+
+                            # Truncate large results to avoid token limits
+                            max_length = self.config.get(
+                                "llm.gemini.max_tool_result_length", 50000
+                            )
+                            if len(result) > max_length:
+                                original_length = len(result)
+                                truncated = result[:max_length]
+                                result = f"{truncated}\n\n[Result truncated due to size. Original length: {original_length} characters]"
+                                _logger.warning(
+                                    "    Tool result truncated from %d to %d characters",
+                                    original_length,
+                                    max_length,
+                                )
 
                             # Create function response part
                             tool_results_parts.append(
@@ -164,7 +183,7 @@ class GeminiProvider(BaseLLMProvider):
                     return final_text if final_text else "Empty response from Gemini"
 
             except Exception as e:
-                print(f"    ⚠️  LLM call failed: {e}")
+                _logger.error("    LLM call failed: %s", e)
                 raise
 
         # Max iterations reached
@@ -186,7 +205,9 @@ class GeminiProvider(BaseLLMProvider):
             )
 
             response = self.client.models.generate_content(
-                model=self.config.get("llm.model"), contents=prompt, config=config
+                model=self.config.get("llm.gemini.model"),
+                contents=prompt,
+                config=config,
             )
 
             # Extract text from response
@@ -201,5 +222,5 @@ class GeminiProvider(BaseLLMProvider):
             return final_text if final_text else "Empty response from Gemini"
 
         except Exception as e:
-            print(f"    ⚠️  LLM call failed: {e}")
+            _logger.error("    LLM call failed: %s", e)
             raise

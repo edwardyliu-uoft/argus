@@ -15,8 +15,9 @@ class ArgusConfig:
         Args:
             config_path: Path to config JSON file
         """
-        if config_path and Path(config_path).exists():
-            with open(config_path, encoding="utf-8") as f:
+        self.path = config_path
+        if self.path and Path(self.path).exists():
+            with open(self.path, encoding="utf-8") as f:
                 self.config = json.load(f)
         else:
             self.config = self.get_default_config()
@@ -31,6 +32,9 @@ class ArgusConfig:
     def get_default_config() -> Dict[str, Any]:
         """Return default configuration."""
         return {
+            "orchestrator": {
+                "llm": "gemini",
+            },
             "llm": {
                 "anthropic": {
                     "provider": "anthropic",
@@ -38,6 +42,7 @@ class ArgusConfig:
                     "api_key": "ANTHROPIC_API_KEY",  # Environment variable for API key
                     "max_retries": 3,
                     "timeout": 300,
+                    "max_tool_result_length": 50000,  # Max characters for tool results
                 },
                 "gemini": {
                     "provider": "gemini",
@@ -45,6 +50,7 @@ class ArgusConfig:
                     "api_key": "GEMINI_API_KEY",  # Environment variable for API key
                     "max_retries": 3,
                     "timeout": 300,
+                    "max_tool_result_length": 50000,  # Max characters for tool results
                 },
             },
             "server": {

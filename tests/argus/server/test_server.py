@@ -13,7 +13,7 @@ import pytest
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
-from argus.core import conf
+from argus.core import conf, docker as argus_docker
 from argus.server import server
 
 
@@ -329,6 +329,7 @@ class TestClientConnection:
             assert count >= 0  # Should have at least some tools or zero
 
 
+@pytest.mark.skipif(not argus_docker.docker_available(), reason="Docker not available")
 class TestToolInvocation:
     """Tests for invoking mythril and slither tools via MCP client."""
 
@@ -706,6 +707,7 @@ contract TokenTest {
                     assert data["container_exit_code"] == 0
 
 
+@pytest.mark.skipif(not argus_docker.docker_available(), reason="Docker not available")
 class TestFilesystemTools:
     """Tests for filesystem tools via MCP client."""
 
