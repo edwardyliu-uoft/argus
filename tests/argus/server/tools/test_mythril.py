@@ -149,7 +149,7 @@ contract Vulnerable {
         mock_conf.get.side_effect = lambda key, default=None: {
             "workdir": str(project_root),
             "server.tools.mythril": {
-                "timeout": 120,
+                "timeout": 300,
                 "docker": {
                     "image": "mythril/myth:latest",
                     "network_mode": "bridge",
@@ -165,6 +165,8 @@ contract Vulnerable {
                 "Vulnerable.sol",
                 "--solv",
                 "0.8.0",
+                "--execution-timeout",
+                "180",
             ],
         )
 
