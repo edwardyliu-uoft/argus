@@ -56,7 +56,7 @@ def find_project_root(filepath: str) -> Path:
 def find_files_with_extension(
     project_root: str,
     extension: str,
-    exclude_dirs: Optional[List[str]],
+    exclude_dirs: Optional[List[str]] = None,
 ) -> List[Path]:
     """Find all files with a given extension in project root directory,
     excluding specified directories.

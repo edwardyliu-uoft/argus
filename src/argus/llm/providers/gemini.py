@@ -4,9 +4,10 @@ Google Gemini LLM Provider
 Implements the BaseLLMProvider interface for Google's Gemini models.
 """
 
+from typing import List, Dict, Any
 import os
 import logging
-from typing import List, Dict, Any
+
 from google import genai
 from google.genai import types
 
@@ -148,7 +149,10 @@ class GeminiProvider(BaseLLMProvider):
                             if len(result) > max_length:
                                 original_length = len(result)
                                 truncated = result[:max_length]
-                                result = f"{truncated}\n\n[Result truncated due to size. Original length: {original_length} characters]"
+                                result = (
+                                    f"{truncated}\n\n[Result truncated due to size. "
+                                    "Original length: {original_length} characters]"
+                                )
                                 _logger.warning(
                                     "    Tool result truncated from %d to %d characters",
                                     original_length,

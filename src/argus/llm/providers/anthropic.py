@@ -4,10 +4,12 @@ Anthropic Claude LLM Provider
 Implements the BaseLLMProvider interface for Anthropic's Claude models.
 """
 
-import os
-import json
-import logging
 from typing import List, Dict, Any
+import os
+import logging
+import json
+
+# pylint: disable=import-self
 from anthropic import Anthropic
 
 from argus.llm.provider import BaseLLMProvider
@@ -78,7 +80,7 @@ class AnthropicProvider(BaseLLMProvider):
                     tool_results = []
                     for tool_use in tool_uses:
                         _logger.info(
-                            "    [Tool] %s(%s...)",
+                            "\t[Tool] %s(%s...)",
                             tool_use.name,
                             json.dumps(tool_use.input, indent=2)[:100],
                         )
@@ -91,9 +93,12 @@ class AnthropicProvider(BaseLLMProvider):
                         if len(result) > max_length:
                             original_length = len(result)
                             truncated = result[:max_length]
-                            result = f"{truncated}\n\n[Result truncated due to size. Original length: {original_length} characters]"
+                            result = (
+                                f"{truncated}\n\n[Result truncated due to size. "
+                                "Original length: {original_length} characters]"
+                            )
                             _logger.warning(
-                                "    Tool result truncated from %d to %d characters",
+                                "\tTool result truncated from %d to %d characters",
                                 original_length,
                                 max_length,
                             )
@@ -123,7 +128,7 @@ class AnthropicProvider(BaseLLMProvider):
                     return final_text
 
             except Exception as e:
-                _logger.error("    LLM call failed: %s", e)
+                _logger.error("\tLLM call failed: %s", e)
                 raise
 
         # Max iterations reached
@@ -154,5 +159,5 @@ class AnthropicProvider(BaseLLMProvider):
             return final_text
 
         except Exception as e:
-            _logger.error("    LLM call failed: %s", e)
+            _logger.error("\tLLM call failed: %s", e)
             raise

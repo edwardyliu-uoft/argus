@@ -1,5 +1,5 @@
 """
-Argus CLI - Command-line interface for running security analysis
+Argus CLI: Command-line interface for running security analysis
 """
 
 from importlib.metadata import version, PackageNotFoundError
@@ -57,15 +57,15 @@ def analyze(ctx, project_root):
 
 async def _analyze(project_root: str, verbose: bool) -> int:
     logger = logging.getLogger("argus.console")
-    logger.info(f"Analyzing project at: {project_root}")
+    logger.info("Analyzing project at: %s", project_root)
 
     # Validate project path
     project = Path(project_root).resolve()
     if not project.exists():
-        logger.error(f"Project path does not exist: {project}")
+        logger.error("Project path does not exist: %s", project)
         return 1
     if not project.is_dir():
-        logger.error(f"Project path is not a directory: {project}")
+        logger.error("Project path is not a directory: %s", project)
         return 1
 
     # Create and run orchestrator
@@ -75,11 +75,11 @@ async def _analyze(project_root: str, verbose: bool) -> int:
 
         if result.get("success"):
             logger.info("\nAnalysis completed successfully")
-            logger.info(f"\tContracts analyzed: {result.get('contracts_analyzed', 0)}")
-            logger.info(f"\tDuration: {result.get('duration', 0):.1f}s")
+            logger.info("\tContracts analyzed: %d", result.get("contracts_analyzed", 0))
+            logger.info("\tDuration: %.1f s", result.get("duration", 0))
             return 0
         else:
-            logger.error(f"\nAnalysis failed: {result.get('error', 'Unknown error')}")
+            logger.error("\nAnalysis failed: %s", result.get("error", "Unknown error"))
             return 1
 
     except KeyboardInterrupt:
@@ -87,7 +87,7 @@ async def _analyze(project_root: str, verbose: bool) -> int:
         return -1
 
     except Exception as e:
-        logger.error(f"Unexpected error: {e}")
+        logger.error("Unexpected error: %s", e)
         if verbose:
             import traceback
 
@@ -110,7 +110,7 @@ def config(ctx, key):
     if key:
         logger.info("> Key: Value")
         value = json.dumps(conf.get(key, "undefined"), indent=2)
-        logger.info(f"{key}: {value}")
+        logger.info("%s: %s", key, value)
     else:
         logger.info("> Configuration Dictionary:")
         logger.info(json.dumps(conf.config, indent=2))
@@ -123,8 +123,8 @@ def config(ctx, key):
 def tool(ctx, name, args):
     """Execute a tool given NAME and ARGS."""
     logger = logging.getLogger("argus.console")
-    logger.info(f"Running MCP tool: {name}")
-    logger.debug(f"Tool arguments: {' '.join(args)}")
+    logger.info("Running MCP tool: %s", name)
+    logger.debug("Tool arguments: %s", " ".join(args))
     # TODO: Implement tool execution logic
 
 
@@ -134,7 +134,7 @@ def tool(ctx, name, args):
 def resource(ctx, name):
     """Access a resource by NAME."""
     logger = logging.getLogger("argus.console")
-    logger.info(f"Accessing MCP resource: {name}")
+    logger.info("Accessing MCP resource: %s", name)
     # TODO: Implement resource access logic
 
 
@@ -149,13 +149,15 @@ def resource(ctx, name):
 def generate(ctx, generator, analysis_report):
     """Generate tests using GENERATOR based on ANALYSIS_REPORT."""
     logger = logging.getLogger("argus.console")
-    logger.info(f"Generating tests with generator: {generator}")
-    logger.debug(f"Using analysis report: {analysis_report}")
+    logger.info("Generating tests with generator: %s", generator)
+    logger.debug("Using analysis report: %s", analysis_report)
     # TODO: Implement generation logic
 
 
 def main() -> None:
     """Entry point for CLI."""
+
+    # pylint: disable=no-value-for-parameter
     cli()
 
 

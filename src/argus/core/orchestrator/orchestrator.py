@@ -86,9 +86,9 @@ class ArgusOrchestrator:
         mcp_host = self.config.get("server.host", "127.0.0.1")
         mcp_port = self.config.get("server.port", 8000)
         self.mcp_server = mcp_server.start(host=mcp_host, port=mcp_port)
-        _logger.info(f"Started MCP server at http://{mcp_host}:{mcp_port}/mcp")
-        _logger.info(f"Initialized Argus Orchestrator for {self.project_path}")
-        _logger.info(f"Output directory: {self.output_dir}")
+        _logger.info("Started MCP server at http://%s:%d/mcp", mcp_host, mcp_port)
+        _logger.info("Initialized Argus Orchestrator for %s", self.project_path)
+        _logger.info("Output directory: %s", self.output_dir)
 
     async def run(self) -> Dict[str, Any]:
         """Execute all 7 phases of analysis.
@@ -126,7 +126,7 @@ class ArgusOrchestrator:
             # Summary
             duration = (datetime.now() - self.state.start_time).total_seconds()
             _logger.info("=" * 80)
-            _logger.info(f"Analysis complete in {duration:.1f}s")
+            _logger.info("Analysis complete in %.1fs", duration)
             # _logger.info(f"Report: {self.state.report_path}")
             _logger.info("=" * 80)
 
@@ -140,8 +140,9 @@ class ArgusOrchestrator:
                 "errors": self.state.errors,
             }
 
+        # pylint: disable=broad-except
         except Exception as e:
-            _logger.error(f"Orchestration failed: {e}", exc_info=True)
+            _logger.error("Orchestration failed: %s", e, exc_info=True)
             self.state.errors.append(str(e))
             return {
                 "success": False,
@@ -178,7 +179,7 @@ class ArgusOrchestrator:
             utils.create_directory(self.output_dir / "contracts")
             utils.create_directory(self.output_dir / "tests")
             utils.create_directory(self.output_dir / "reports")
-            _logger.info(f"Created output directory: {self.output_dir}")
+            _logger.info("Created output directory: %s", self.output_dir)
 
             # look for .sol files
             # TODO: should we specify this in config instead?
@@ -191,13 +192,15 @@ class ArgusOrchestrator:
                 "cache",
             ]
             self.state.contracts = utils.find_files_with_extension(
-                str(self.project_path), "sol", exclude_dirs
+                str(self.project_path),
+                "sol",
+                exclude_dirs,
             )
 
             if not self.state.contracts:
                 _logger.warning("No Solidity contracts found in project")
             else:
-                _logger.info(f"Discovered {len(self.state.contracts)} contracts")
+                _logger.info("Discovered %d contracts", len(self.state.contracts))
 
             # Read documentation files
             readme_path = self.project_path / "README.md"
@@ -213,7 +216,7 @@ class ArgusOrchestrator:
                 for doc_file in doc_files:
                     doc_name = doc_file.stem
                     self.state.documentation[doc_name] = utils.read_file(str(doc_file))
-                _logger.info(f"Found {len(doc_files)} documentation files")
+                _logger.info("Found %d documentation files", len(doc_files))
 
             # Generate initial analysis summary using LLM
             if self.state.contracts:
@@ -235,7 +238,7 @@ class ArgusOrchestrator:
                 _logger.info("Initial discovery complete")
 
         except Exception as e:
-            _logger.error(f"Phase 1 failed: {e}", exc_info=True)
+            _logger.error("Phase 1 failed: %s", e, exc_info=True)
             self.state.errors.append(f"Phase 1: {str(e)}")
             raise
 
@@ -261,7 +264,7 @@ class ArgusOrchestrator:
             return
 
         try:
-            _logger.info(f"Analyzing {len(self.state.contracts)} contracts")
+            _logger.info("Analyzing %d contracts", len(self.state.contracts))
 
             # Analyze contracts concurrently for better performance
             tasks = [
@@ -275,11 +278,13 @@ class ArgusOrchestrator:
                 len(findings) for findings in self.state.file_semantic_findings.values()
             )
             _logger.info(
-                f"Phase 2 complete: {total_findings} findings across {len(self.state.contracts)} contracts"
+                "Phase 2 complete: %d findings across %d contracts",
+                total_findings,
+                len(self.state.contracts),
             )
 
         except Exception as e:
-            _logger.error(f"Phase 2 failed: {e}", exc_info=True)
+            _logger.error("Phase 2 failed: %s", e, exc_info=True)
             self.state.errors.append(f"Phase 2: {str(e)}")
             raise
 
@@ -291,7 +296,7 @@ class ArgusOrchestrator:
         """
         try:
             contract_name = contract_path.name
-            _logger.info(f"Analyzing {contract_name}...")
+            _logger.info("Analyzing %s...", contract_name)
 
             # Read contract code
             code = utils.read_file(str(contract_path))
@@ -303,7 +308,7 @@ class ArgusOrchestrator:
 
             # Log the prompt being sent (for debugging)
             _logger.debug("=" * 80)
-            _logger.debug(f"PROMPT SENT TO LLM (Phase 2 - {contract_name}):")
+            _logger.debug("PROMPT SENT TO LLM (Phase 2 - %s):", contract_name)
             _logger.debug("=" * 80)
             _logger.debug(prompt[:500] + "..." if len(prompt) > 500 else prompt)
             _logger.debug("=" * 80)
@@ -313,7 +318,7 @@ class ArgusOrchestrator:
 
             # Log the raw LLM response for debugging
             _logger.info("=" * 80)
-            _logger.info(f"LLM RESPONSE (Phase 2 - {contract_name}):")
+            _logger.info("LLM RESPONSE (Phase 2 - %s):", contract_name)
             _logger.info("=" * 80)
             _logger.info(response)
             _logger.info("=" * 80)
@@ -325,21 +330,30 @@ class ArgusOrchestrator:
                     "findings", []
                 )
                 _logger.info(
-                    f"Successfully parsed {len(self.state.file_semantic_findings[contract_name])} findings for {contract_name}"
+                    "Successfully parsed %d findings for %s",
+                    len(self.state.file_semantic_findings[contract_name]),
+                    contract_name,
                 )
+
+            # pylint: disable=broad-except
             except Exception as e:
                 _logger.warning(
-                    f"Failed to parse LLM response as JSON for {contract_name}: {e}"
+                    "Failed to parse LLM response as JSON for %s: %s",
+                    contract_name,
+                    e,
                 )
                 # Fallback to empty findings
                 self.state.file_semantic_findings[contract_name] = []
 
             _logger.info(
-                f"Completed analysis of {contract_name}: {len(self.state.file_semantic_findings[contract_name])} findings"
+                "Completed analysis of %s: %d findings",
+                contract_name,
+                len(self.state.file_semantic_findings[contract_name]),
             )
 
+        # pylint: disable=broad-except
         except Exception as e:
-            _logger.error(f"Failed to analyze {contract_path.name}: {e}")
+            _logger.error("Failed to analyze %s: %s", contract_path.name, e)
             self.state.errors.append(f"Phase 2 ({contract_path.name}): {str(e)}")
 
     # =========================================================================
@@ -410,16 +424,21 @@ class ArgusOrchestrator:
                 findings_data = utils.parse_json_llm(response)
                 self.state.project_semantic_findings = findings_data.get("findings", [])
                 _logger.info(
-                    f"Successfully parsed {len(self.state.project_semantic_findings)} project-level findings"
+                    "Successfully parsed %d project-level findings",
+                    len(self.state.project_semantic_findings),
                 )
+
+            # pylint: disable=broad-except
             except Exception as e:
                 _logger.warning(
-                    f"Failed to parse LLM response as JSON for project-level analysis: {e}"
+                    "Failed to parse LLM response as JSON for project-level analysis: %s",
+                    e,
                 )
                 self.state.project_semantic_findings = []
 
             _logger.info(
-                f"Project-level analysis complete: {len(self.state.project_semantic_findings)} findings"
+                "Project-level analysis complete: %d findings",
+                len(self.state.project_semantic_findings),
             )
 
             # Perform cross-contract analysis if multiple contracts exist
@@ -438,7 +457,9 @@ class ArgusOrchestrator:
 
                 if len(self.state.contracts) > max_contracts:
                     _logger.info(
-                        f"Analyzing {max_contracts} of {len(self.state.contracts)} contracts to avoid context overflow"
+                        "Analyzing %d of %d contracts to avoid context overflow",
+                        max_contracts,
+                        len(self.state.contracts),
                     )
 
                 # Generate cross-contract analysis prompt
@@ -468,16 +489,21 @@ class ArgusOrchestrator:
                         "findings", []
                     )
                     _logger.info(
-                        f"Successfully parsed {len(self.state.cross_contract_findings)} cross-contract findings"
+                        "Successfully parsed %d cross-contract findings",
+                        len(self.state.cross_contract_findings),
                     )
+
+                # pylint: disable=broad-except
                 except Exception as e:
                     _logger.warning(
-                        f"Failed to parse LLM response as JSON for cross-contract analysis: {e}"
+                        "Failed to parse LLM response as JSON for cross-contract analysis: %s",
+                        e,
                     )
                     self.state.cross_contract_findings = []
 
                 _logger.info(
-                    f"Cross-contract analysis complete: {len(self.state.cross_contract_findings)} findings"
+                    "Cross-contract analysis complete: %d findings",
+                    len(self.state.cross_contract_findings),
                 )
             else:
                 _logger.info(
@@ -487,10 +513,11 @@ class ArgusOrchestrator:
             total_findings = len(self.state.project_semantic_findings) + len(
                 self.state.cross_contract_findings
             )
-            _logger.info(f"Phase 3 complete: {total_findings} project-level findings")
+            _logger.info("Phase 3 complete: %d project-level findings", total_findings)
 
+        # pylint: disable=broad-except
         except Exception as e:
-            _logger.error(f"Phase 3 failed: {e}", exc_info=True)
+            _logger.error("Phase 3 failed: %s", e, exc_info=True)
             self.state.errors.append(f"Phase 3: {str(e)}")
             raise
 
@@ -542,7 +569,8 @@ class ArgusOrchestrator:
             )
 
             _logger.info(
-                f"Invoking LLM with tool access for {len(self.state.contracts)} contracts"
+                "Invoking LLM with tool access for %d contracts",
+                len(self.state.contracts),
             )
 
             # Log the prompt being sent (for debugging)
@@ -577,8 +605,10 @@ class ArgusOrchestrator:
             try:
                 analysis_results = utils.parse_json_llm(response)
                 _logger.info("Successfully parsed LLM response as JSON")
+
+            # pylint: disable=broad-except
             except Exception as e:
-                _logger.warning(f"Failed to parse LLM response as JSON: {e}")
+                _logger.warning("Failed to parse LLM response as JSON: %s", e)
                 # Fallback to raw text response
                 analysis_results = {
                     "tool_executions": [],
@@ -592,31 +622,38 @@ class ArgusOrchestrator:
             # Log what the LLM decided and executed
             _logger.info("LLM completed static analysis")
             tool_executions = analysis_results.get("tool_executions", [])
-            _logger.info(f"Tool executions: {len(tool_executions)}")
+            _logger.info("Tool executions: %d", len(tool_executions))
 
             # Log details of each tool execution
             for i, execution in enumerate(tool_executions, 1):
                 _logger.info(
-                    f"  {i}. Tool: {execution.get('tool', 'unknown')}, "
-                    f"Contract: {execution.get('contract', 'unknown')}, "
-                    f"Findings: {len(execution.get('findings', []))}"
+                    "\t%d. Tool: %s, Contract: %s, Findings: %d",
+                    i,
+                    execution.get("tool", "unknown"),
+                    execution.get("contract", "unknown"),
+                    len(execution.get("findings", [])),
                 )
 
             total_findings = sum(
                 len(results.get("findings", []))
                 for results in self.state.static_analysis_results.values()
             )
-            _logger.info(f"Phase 4 complete: {total_findings} static analysis findings")
+            _logger.info(
+                "Phase 4 complete: %d static analysis findings", total_findings
+            )
 
             # Log findings per contract
             for contract_name, results in self.state.static_analysis_results.items():
                 _logger.info(
-                    f"  {contract_name}: {len(results.get('findings', []))} findings "
-                    f"(tools: {', '.join(results.get('tools_used', []))})"
+                    "\t%s: %d findings (tools: %s)",
+                    contract_name,
+                    len(results.get("findings", [])),
+                    ", ".join(results.get("tools_used", [])),
                 )
 
+        # pylint: disable=broad-except
         except Exception as e:
-            _logger.error(f"Phase 4 failed: {e}", exc_info=True)
+            _logger.error("Phase 4 failed: %s", e, exc_info=True)
             self.state.errors.append(f"Phase 4: {str(e)}")
             raise
         finally:
@@ -648,7 +685,7 @@ class ArgusOrchestrator:
 
         try:
             _logger.info(
-                f"Extracting endpoints from {len(self.state.contracts)} contracts"
+                "Extracting endpoints from %d contracts", len(self.state.contracts)
             )
 
             # Extract endpoints concurrently for better performance
@@ -662,10 +699,10 @@ class ArgusOrchestrator:
             total_endpoints = sum(
                 len(endpoints) for endpoints in self.state.endpoints.values()
             )
-            _logger.info(f"Phase 5 complete: {total_endpoints} endpoints extracted")
+            _logger.info("Phase 5 complete: %d endpoints extracted", total_endpoints)
 
         except Exception as e:
-            _logger.error(f"Phase 5 failed: {e}", exc_info=True)
+            _logger.error("Phase 5 failed: %s", e, exc_info=True)
             self.state.errors.append(f"Phase 5: {str(e)}")
             raise
 
@@ -677,7 +714,7 @@ class ArgusOrchestrator:
         """
         try:
             contract_name = contract_path.name
-            _logger.info(f"Extracting endpoints from {contract_name}...")
+            _logger.info("Extracting endpoints from %s...", contract_name)
 
             # Read contract code
             code = utils.read_file(str(contract_path))
@@ -697,11 +734,16 @@ class ArgusOrchestrator:
             self.state.endpoints[contract_name] = []
 
             _logger.info(
-                f"Extracted {len(self.state.endpoints[contract_name])} endpoints from {contract_name}"
+                "Extracted %d endpoints from %s",
+                len(self.state.endpoints[contract_name]),
+                contract_name,
             )
 
+        # pylint: disable=broad-except
         except Exception as e:
-            _logger.error(f"Failed to extract endpoints from {contract_path.name}: {e}")
+            _logger.error(
+                "Failed to extract endpoints from %s: %s", contract_path.name, e
+            )
             self.state.errors.append(f"Phase 5 ({contract_path.name}): {str(e)}")
 
     # =========================================================================
@@ -709,7 +751,8 @@ class ArgusOrchestrator:
     # =========================================================================
 
     def _process_static_analysis_results(
-        self, analysis_results: Dict[str, Any]
+        self,
+        analysis_results: Dict[str, Any],
     ) -> None:
         """Process LLM tool execution results and populate state.
 
