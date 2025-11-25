@@ -51,6 +51,7 @@ class OrchestrationState:
 
         # Phase 4: Static analysis
         self.static_analysis_results: Dict[str, Dict] = {}
+        self.static_analysis_summary: str = ""  # Overall summary across all contracts
         self.tool_decisions: Dict[str, List[str]] = {}  # contract -> [tools_to_run]
 
         # Phase 5: Endpoints
@@ -736,7 +737,26 @@ class ArgusOrchestrator:
                 if finding not in self.state.static_analysis_results[contract_name]["findings"]:
                     self.state.static_analysis_results[contract_name]["findings"].append(finding)
 
-        # Store overall summary
-        summary = analysis_results.get("summary", "")
-        for contract_name in self.state.static_analysis_results:
-            self.state.static_analysis_results[contract_name]["analysis"] = summary
+        # Store overall summary at the phase level
+        self.state.static_analysis_summary = analysis_results.get("summary", "")
+
+        # Generate per-contract analysis summaries based on their findings
+        for contract_name, results in self.state.static_analysis_results.items():
+            findings = results.get("findings", [])
+            tools_used = results.get("tools_used", [])
+
+            if findings:
+                # Create a summary for this specific contract
+                high_severity = [f for f in findings if f.get("severity") == "high"]
+                medium_severity = [f for f in findings if f.get("severity") == "medium"]
+                low_severity = [f for f in findings if f.get("severity") == "low"]
+
+                summary_parts = [
+                    f"Analysis of {contract_name} using {', '.join(tools_used)}:",
+                    f"- {len(high_severity)} high severity issues",
+                    f"- {len(medium_severity)} medium severity issues",
+                    f"- {len(low_severity)} low severity issues"
+                ]
+                results["analysis"] = "\n".join(summary_parts)
+            else:
+                results["analysis"] = f"No security issues found in {contract_name} using {', '.join(tools_used) if tools_used else 'no tools'}"
