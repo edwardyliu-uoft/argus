@@ -90,7 +90,11 @@ class TestPullImage:
 
         assert success is True
         assert error is None
-        mock_client.images.pull.assert_called_once_with("test:latest")
+        # Check that pull was called with image and platform parameter
+        mock_client.images.pull.assert_called_once()
+        call_args = mock_client.images.pull.call_args
+        assert call_args[0][0] == "test:latest"
+        assert "platform" in call_args[1]
 
     @patch("argus.core.docker.docker.from_env")
     def test_pull_policy_always(self, mock_from_env):
@@ -103,7 +107,11 @@ class TestPullImage:
 
         assert success is True
         assert error is None
-        mock_client.images.pull.assert_called_once_with("test:latest")
+        # Check that pull was called with image and platform parameter
+        mock_client.images.pull.assert_called_once()
+        call_args = mock_client.images.pull.call_args
+        assert call_args[0][0] == "test:latest"
+        assert "platform" in call_args[1]
 
     @patch("argus.core.docker.docker.from_env")
     def test_pull_policy_invalid(self, mock_from_env):
@@ -498,7 +506,7 @@ class TestDockerIntegration:
             project_root=project_root,
             timeout=30,
         )
-
+        print(result)
         assert result["exit_code"] == 0
         assert result["container_exit_code"] == 0
         assert "usage" in result["stdout"].lower() or "myth" in result["stdout"].lower()

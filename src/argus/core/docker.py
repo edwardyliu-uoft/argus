@@ -6,6 +6,7 @@ Provides utilities for operating Docker containers.
 from typing import Dict, Any, Optional, Tuple, List, Union
 from pathlib import Path
 import logging
+import platform
 
 import docker
 from docker.errors import DockerException, ImageNotFound, APIError
@@ -37,19 +38,33 @@ def docker_available() -> bool:
         return False
 
 
+def get_docker_platform():
+    """Detects the local computer's architecture and maps it to Docker platform format."""
+    machine = platform.machine().lower()
+    if machine in ("x86_64", "amd64"):
+        return "linux/amd64"
+    elif machine in ("aarch64", "arm64"):
+        return "linux/arm64"
+    else:
+        return f"linux/{machine}"  # Return generic linux if unusual architecture
+
+
 def pull_image(
     image: str,
+    image_platform: Optional[str] = None,
     pull_policy: str = "if-not-present",
 ) -> Tuple[bool, Optional[str]]:
     """Pull Docker image according to the pull policy.
 
     Args:
         image: Docker image name (e.g. "trailofbits/eth-security-toolbox:latest")
+        image_platform: Platform to pull image for (e.g. "linux/amd64").
         pull_policy: "always", "if-not-present", or "never"
 
     Returns:
         Tuple of (success, error_message)
     """
+    image_platform = image_platform or get_docker_platform()
     try:
         client = docker.from_env()
         match pull_policy:
@@ -71,13 +86,13 @@ def pull_image(
                     return True, None  # Image exists, no need to pull
                 except ImageNotFound:
                     _logger.info("Pulling Docker image: %s", image)
-                    client.images.pull(image)
+                    client.images.pull(image, platform=image_platform)
                     _logger.info("Image '%s' pulled successfully", image)
                     return True, None
             case "always":
                 # Always pull latest
                 _logger.info("Pulling Docker image: %s", image)
-                client.images.pull(image)
+                client.images.pull(image, platform=image_platform)
                 _logger.info("Image '%s' pulled successfully", image)
                 return True, None
 

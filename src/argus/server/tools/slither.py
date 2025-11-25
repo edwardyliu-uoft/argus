@@ -142,6 +142,10 @@ async def slither(
             "docker.image",
             "trailofbits/eth-security-toolbox:latest",
         )
+        platform = utils.conf_get(slither_conf, "docker.platform", None)
+        pull_policy = utils.conf_get(
+            slither_conf, "docker.pull_policy", "if-not-present"
+        )
         # Network mode: 'bridge' for isolated, 'host' for network access
         network_mode = utils.conf_get(slither_conf, "docker.network_mode", "bridge")
         # Whether to remove container after execution (cleanup)
@@ -159,7 +163,7 @@ async def slither(
 
         # STEP 4: Ensure Docker image is available locally (pulls if missing)
         # Uses 'if-not-present' policy: only downloads if not in local cache
-        pull_success, pull_error = argus_docker.pull_image(image)
+        pull_success, pull_error = argus_docker.pull_image(image, platform, pull_policy)
         if not pull_success:
             return {
                 "exit_code": -1,
