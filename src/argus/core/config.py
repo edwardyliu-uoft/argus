@@ -75,26 +75,6 @@ class ArgusConfig:
                             "remove_containers": True,
                         },
                     },
-                    "filesystem": {
-                        "functions": [
-                            "list_directory",
-                            "find_files_by_extension",
-                            "read_file_info",
-                            "read_file",
-                            "write_file",
-                            "append_file",
-                            "create_directory",
-                        ],
-                    },
-                },
-                "resources": {
-                    "filesystem": {
-                        "functions": [
-                            "get_workspace",
-                            "get_project_structure",
-                            "get_solidity_files",
-                        ],
-                    },
                 },
             },
             "generator": {
