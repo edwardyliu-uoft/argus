@@ -1,65 +1,64 @@
 """Tests for Slither tool controller."""
 
-from unittest.mock import patch
 import pytest
 
 from argus.core import docker as argus_docker
-from argus.server import tools
+from argus.server.tools import SlitherToolPlugin
 
 
 @pytest.mark.skipif(not argus_docker.docker_available(), reason="Docker not available")
 class TestSlitherIntegration:
     """Integration tests that run actual Slither container."""
 
+    @pytest.fixture(scope="class")
+    def slither(self):
+        """Slither tool plugin instance."""
+        return SlitherToolPlugin()
+
     @pytest.mark.asyncio
-    @patch("argus.server.tools.slither.conf")
-    async def test_slither_help_command(self, mock_conf, tmp_path):
+    async def test_slither_help_command(self, tmp_path, slither):
         """Test running slither with --help command."""
         project_root = tmp_path / "project"
         project_root.mkdir()
-        mock_conf.get.side_effect = lambda key, default=None: {
-            "workdir": str(project_root),
-            "server.tools.slither": {
+        slither.initialize(
+            {
+                "workdir": str(project_root),
                 "timeout": 60,
                 "docker": {
                     "image": "trailofbits/eth-security-toolbox:latest",
                     "network_mode": "none",
                     "remove_containers": True,
                 },
-            },
-        }.get(key, default)
-
-        result = await tools.slither.slither(command="slither", args=["--help"])
-
-        assert result["exit_code"] == 0
-        assert result["container_exit_code"] == 0
+            }
+        )
+        res = await slither.slither(command="slither", args=["--help"])
+        assert res["exit_code"] == 0
+        assert res["container_exit_code"] == 0
 
     @pytest.mark.asyncio
-    @patch("argus.server.tools.slither.conf")
-    async def test_slither_version_command(self, mock_conf, tmp_path):
+    async def test_slither_version_command(self, tmp_path, slither):
         """Test running slither with --version command."""
         project_root = tmp_path / "project"
         project_root.mkdir()
-        mock_conf.get.side_effect = lambda key, default=None: {
-            "workdir": str(project_root),
-            "server.tools.slither": {
+        slither.initialize(
+            {
+                "workdir": str(project_root),
                 "timeout": 60,
                 "docker": {
                     "image": "trailofbits/eth-security-toolbox:latest",
                     "network_mode": "none",
                     "remove_containers": True,
                 },
-            },
-        }.get(key, default)
+            }
+        )
 
-        result = await tools.slither.slither(command="slither", args=["--version"])
+        result = await slither.slither(command="slither", args=["--version"])
 
         assert result["exit_code"] == 0
         assert result["container_exit_code"] == 0
 
     @pytest.mark.asyncio
-    @patch("argus.server.tools.slither.conf")
-    async def test_slither_analyze_simple_contract(self, mock_conf, tmp_path):
+    async def test_slither_analyze_simple_contract(self, tmp_path, slither):
         """Test running slither analysis on a simple Solidity contract."""
         project_root = tmp_path / "project"
         project_root.mkdir()
@@ -84,31 +83,28 @@ contract SimpleStorage {
 }
 """
         )
-        mock_conf.get.side_effect = lambda key, default=None: {
-            "workdir": str(project_root),
-            "server.tools.slither": {
+        slither.initialize(
+            {
+                "workdir": str(project_root),
                 "timeout": 120,
                 "docker": {
                     "image": "trailofbits/eth-security-toolbox:latest",
                     "network_mode": "bridge",
                     "remove_containers": True,
                 },
-            },
-        }.get(key, default)
-
-        result = await tools.slither.slither(
-            command="slither", args=["SimpleStorage.sol"]
+            }
         )
+
+        result = await slither.slither(command="slither", args=["SimpleStorage.sol"])
 
         assert result["exit_code"] == 0
         assert result["container_exit_code"] != 0
 
     @pytest.mark.asyncio
-    @patch("argus.server.tools.slither.conf")
     async def test_slither_analyze_contract_with_vulnerability(
         self,
-        mock_conf,
         tmp_path,
+        slither,
     ):
         """Test running slither on a contract with a known vulnerability."""
         project_root = tmp_path / "project"
@@ -140,26 +136,25 @@ contract Vulnerable {
 }
 """
         )
-        mock_conf.get.side_effect = lambda key, default=None: {
-            "workdir": str(project_root),
-            "server.tools.slither": {
+        slither.initialize(
+            {
+                "workdir": str(project_root),
                 "timeout": 120,
                 "docker": {
                     "image": "trailofbits/eth-security-toolbox:latest",
                     "network_mode": "bridge",
                     "remove_containers": True,
                 },
-            },
-        }.get(key, default)
+            }
+        )
 
-        result = await tools.slither.slither(command="slither", args=["Vulnerable.sol"])
+        result = await slither.slither(command="slither", args=["Vulnerable.sol"])
 
         assert result["exit_code"] == 0
         assert result["container_exit_code"] != 0
 
     @pytest.mark.asyncio
-    @patch("argus.server.tools.slither.conf")
-    async def test_slither_analyze_with_dot(self, mock_conf, tmp_path):
+    async def test_slither_analyze_with_dot(self, tmp_path, slither):
         """Test running slither with JSON output format."""
         project_root = tmp_path / "project"
         project_root.mkdir()
@@ -181,19 +176,19 @@ contract Token {
 }
 """
         )
-        mock_conf.get.side_effect = lambda key, default=None: {
-            "workdir": str(project_root),
-            "server.tools.slither": {
+        slither.initialize(
+            {
+                "workdir": str(project_root),
                 "timeout": 120,
                 "docker": {
                     "image": "trailofbits/eth-security-toolbox:latest",
                     "network_mode": "bridge",
                     "remove_containers": True,
                 },
-            },
-        }.get(key, default)
+            }
+        )
 
-        result = await tools.slither.slither(
+        result = await slither.slither(
             command="slither",
             args=["."],
         )
@@ -202,8 +197,7 @@ contract Token {
         assert result["container_exit_code"] != 0
 
     @pytest.mark.asyncio
-    @patch("argus.server.tools.slither.conf")
-    async def test_slither_with_specific_detector(self, mock_conf, tmp_path):
+    async def test_slither_with_specific_detector(self, tmp_path, slither):
         """Test running slither with specific detector."""
         project_root = tmp_path / "project"
         project_root.mkdir()
@@ -223,19 +217,19 @@ contract Simple {
 }
 """
         )
-        mock_conf.get.side_effect = lambda key, default=None: {
-            "workdir": str(project_root),
-            "server.tools.slither": {
+        slither.initialize(
+            {
+                "workdir": str(project_root),
                 "timeout": 120,
                 "docker": {
                     "image": "trailofbits/eth-security-toolbox:latest",
                     "network_mode": "bridge",
                     "remove_containers": True,
                 },
-            },
-        }.get(key, default)
+            }
+        )
 
-        result = await tools.slither.slither(
+        result = await slither.slither(
             command="slither",
             args=[
                 "Simple.sol",
@@ -248,8 +242,7 @@ contract Simple {
         assert result["container_exit_code"] == 0
 
     @pytest.mark.asyncio
-    @patch("argus.server.tools.slither.conf")
-    async def test_slither_with_invalid_contract(self, mock_conf, tmp_path):
+    async def test_slither_with_invalid_contract(self, tmp_path, slither):
         """Test running slither on invalid Solidity code."""
         project_root = tmp_path / "project"
         project_root.mkdir()
@@ -268,55 +261,51 @@ contract Invalid {
 }
 """
         )
-        mock_conf.get.side_effect = lambda key, default=None: {
-            "workdir": str(project_root),
-            "server.tools.slither": {
+        slither.initialize(
+            {
+                "workdir": str(project_root),
                 "timeout": 60,
                 "docker": {
                     "image": "trailofbits/eth-security-toolbox:latest",
                     "network_mode": "bridge",
                     "remove_containers": True,
                 },
-            },
-        }.get(key, default)
+            }
+        )
 
-        result = await tools.slither.slither(command="slither", args=["Invalid.sol"])
+        result = await slither.slither(command="slither", args=["Invalid.sol"])
 
         assert result["exit_code"] == 0
         assert result["container_exit_code"] != 0
 
     @pytest.mark.asyncio
-    @patch("argus.server.tools.slither.conf")
-    async def test_slither_with_nonexistent_file(self, mock_conf, tmp_path):
+    async def test_slither_with_nonexistent_file(self, tmp_path, slither):
         """Test running slither on a file that doesn't exist."""
         project_root = tmp_path / "project"
         project_root.mkdir()
 
-        mock_conf.get.side_effect = lambda key, default=None: {
-            "workdir": str(project_root),
-            "server.tools.slither": {
+        slither.initialize(
+            {
+                "workdir": str(project_root),
                 "timeout": 60,
                 "docker": {
                     "image": "trailofbits/eth-security-toolbox:latest",
                     "network_mode": "none",
                     "remove_containers": True,
                 },
-            },
-        }.get(key, default)
-
-        result = await tools.slither.slither(
-            command="slither", args=["NonExistent.sol"]
+            }
         )
+
+        result = await slither.slither(command="slither", args=["NonExistent.sol"])
 
         assert result["exit_code"] == 0
         assert result["container_exit_code"] != 0
 
     @pytest.mark.asyncio
-    @patch("argus.server.tools.slither.conf")
     async def test_slither_with_multiple_contracts_in_project(
         self,
-        mock_conf,
         tmp_path,
+        slither,
     ):
         """Test running slither in a project with multiple contract files."""
         project_root = tmp_path / "project"
@@ -354,25 +343,24 @@ contract ContractBed {
 }
 """
         )
-        mock_conf.get.side_effect = lambda key, default=None: {
-            "workdir": str(project_root),
-            "server.tools.slither": {
+        slither.initialize(
+            {
+                "workdir": str(project_root),
                 "timeout": 120,
                 "docker": {
                     "image": "trailofbits/eth-security-toolbox:latest",
                     "network_mode": "bridge",
                     "remove_containers": True,
                 },
-            },
-        }.get(key, default)
-        result = await tools.slither.slither(command="slither", args=["."])
+            }
+        )
+        result = await slither.slither(command="slither", args=["."])
 
         assert result["exit_code"] == 0
         assert result["container_exit_code"] == 0
 
     @pytest.mark.asyncio
-    @patch("argus.server.tools.slither.conf")
-    async def test_slither_with_subdirectory_contract(self, mock_conf, tmp_path):
+    async def test_slither_with_subdirectory_contract(self, tmp_path, slither):
         """Test running slither on a contract in a subdirectory."""
         project_root = tmp_path / "project"
         project_root.mkdir()
@@ -400,19 +388,19 @@ contract Storage {
 }
 """
         )
-        mock_conf.get.side_effect = lambda key, default=None: {
-            "workdir": str(project_root),
-            "server.tools.slither": {
+        slither.initialize(
+            {
+                "workdir": str(project_root),
                 "timeout": 120,
                 "docker": {
                     "image": "trailofbits/eth-security-toolbox:latest",
                     "network_mode": "bridge",
                     "remove_containers": True,
                 },
-            },
-        }.get(key, default)
+            }
+        )
 
-        result = await tools.slither.slither(
+        result = await slither.slither(
             command="slither", args=["contracts/Storage.sol"]
         )
 

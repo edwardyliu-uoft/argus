@@ -86,9 +86,11 @@ async def _analyze(project_root: str, verbose: bool) -> int:
         logger.info("Analysis interrupted by user.")
         return -1
 
+    # pylint: disable=broad-except
     except Exception as e:
         logger.error("Unexpected error: %s", e)
         if verbose:
+            # pylint: disable=import-outside-toplevel
             import traceback
 
             traceback.print_exc()

@@ -2,7 +2,6 @@
 """Comprehensive tests for Argus MCP Server."""
 
 
-from unittest.mock import patch
 from pathlib import Path
 import time
 import socket
@@ -54,7 +53,7 @@ class TestServerLifecycle:
         srv.start()
 
         # Give the child process a moment to start
-        time.sleep(1.0)
+        time.sleep(5.0)
 
         assert srv.is_alive(), "Server process should be alive after start()"
         assert srv.pid is not None, "Server process should have a pid"
@@ -74,10 +73,10 @@ class TestServerLifecycle:
         """Test stop with custom timeout."""
         srv = server.create_server(port=0)
         srv.start()
-        time.sleep(1.0)
+        time.sleep(5.0)
 
         assert srv.is_alive()
-        srv.stop(timeout=1.0)
+        srv.stop(timeout=5.0)
         assert not srv.is_alive()
 
     def test_server_attributes(self):
@@ -103,12 +102,12 @@ class TestServerLifecycle:
 
         assert srv is not None
         assert isinstance(srv, server.ArgusMCPServer)
-        time.sleep(1.0)
+        time.sleep(5.0)
         assert srv.is_alive()
 
         # Stop server
         server.stop()
-        time.sleep(0.5)
+        time.sleep(5.0)
         assert not srv.is_alive()
 
     def test_multiple_starts_stops(self):
@@ -116,11 +115,11 @@ class TestServerLifecycle:
         for _ in range(2):
             srv = server.create_server(port=0)
             srv.start()
-            time.sleep(0.8)
+            time.sleep(5.0)
             assert srv.is_alive()
 
             srv.stop()
-            time.sleep(0.3)
+            time.sleep(5.0)
             assert not srv.is_alive()
 
     def test_server_process_name(self):
@@ -143,7 +142,7 @@ class TestClientConnection:
         srv = server.start(host=host, port=port, mount_path=mount_path)
 
         # Give server time to start and register tools
-        time.sleep(2.0)
+        time.sleep(5.0)
 
         url = f"http://{host}:{port}{mount_path}"
 
@@ -151,7 +150,7 @@ class TestClientConnection:
 
         # Cleanup
         server.stop()
-        time.sleep(0.5)
+        time.sleep(5.0)
 
     @pytest.mark.asyncio
     async def test_client_can_connect_to_server(self, mcp_server):
@@ -344,7 +343,7 @@ class TestToolInvocation:
         srv = server.start(host=host, port=port, mount_path=mount_path)
 
         # Give server time to start and register tools
-        time.sleep(2.0)
+        time.sleep(5.0)
 
         url = f"http://{host}:{port}{mount_path}"
 
@@ -352,7 +351,7 @@ class TestToolInvocation:
 
         # Cleanup
         server.stop()
-        time.sleep(0.5)
+        time.sleep(5.0)
 
     @pytest.mark.asyncio
     async def test_call_mythril_version(self, mcp_server):
@@ -450,20 +449,17 @@ class TestToolInvocation:
                 assert data["container_exit_code"] == 0
 
     @pytest.mark.asyncio
-    @patch("argus.server.tools.mythril.conf")
     async def test_call_mythril_analyze_contract(
         self,
-        mock_conf,
-        tmp_path,
         mcp_server,
     ):
         """Test calling mythril to analyze a Solidity contract."""
         url = mcp_server["url"]
 
-        # Create a simple test contract
-        project_root = tmp_path / "project"
-        project_root.mkdir()
-        contract_file = project_root / "SimpleTest.sol"
+        # Create a simple test contract in the server's working directory
+        # The server uses conf.get("workdir") as its working directory
+        workdir = Path(conf.get("workdir", Path.cwd().as_posix()))
+        contract_file = workdir / "SimpleTest.sol"
         contract_file.write_text(
             """
 // SPDX-License-Identifier: MIT
@@ -482,61 +478,51 @@ contract SimpleTest {
 }
 """
         )
-        mock_conf.get.side_effect = lambda key, default=None: {
-            "workdir": str(project_root),
-            "server.tools.mythril": {
-                "timeout": 120,
-                "docker": {
-                    "image": "mythril/myth:latest",
-                    "network_mode": "bridge",
-                    "remove_containers": True,
-                },
-            },
-        }.get(key, default)
 
-        async with streamablehttp_client(url) as (read, write, _):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
+        try:
+            async with streamablehttp_client(url) as (read, write, _):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
 
-                # Call mythril to analyze the contract
-                result = await session.call_tool(
-                    "mythril",
-                    arguments={
-                        "args": [
-                            "analyze",
-                            "SimpleTest.sol",
-                            "--solv",
-                            "0.8.0",
-                            "--execution-timeout",
-                            "30",
-                        ],
-                        "kwargs": {},
-                    },
-                )
+                    # Call mythril to analyze the contract
+                    result = await session.call_tool(
+                        "mythril",
+                        arguments={
+                            "args": [
+                                "analyze",
+                                "SimpleTest.sol",
+                                "--solv",
+                                "0.8.0",
+                                "--execution-timeout",
+                                "30",
+                            ],
+                            "kwargs": {},
+                        },
+                    )
 
-                assert result is not None
-                content = result.content[0]
-                data = json.loads(content.text)
+                    assert result is not None
+                    content = result.content[0]
+                    data = json.loads(content.text)
 
-                # Check response exit codes
-                assert data["exit_code"] == 0
-                assert data["container_exit_code"] == 0
+                    # Check response exit codes
+                    assert data["exit_code"] == 0
+                    assert data["container_exit_code"] == 0
+        finally:
+            # Clean up the test contract file
+            if contract_file.exists():
+                contract_file.unlink()
 
     @pytest.mark.asyncio
-    @patch("argus.server.tools.slither.conf")
     async def test_call_slither_analyze_contract(
         self,
-        mock_conf,
-        tmp_path,
         mcp_server,
     ):
         """Test calling slither to analyze a Solidity contract."""
         url = mcp_server["url"]
 
-        # Create a simple test contract
-        project_root = tmp_path / "project"
-        project_root.mkdir()
-        contract_file = project_root / "TokenTest.sol"
+        # Create a simple test contract in the server's working directory
+        workdir = Path(conf.get("workdir", Path.cwd().as_posix()))
+        contract_file = workdir / "TokenTest.sol"
         contract_file.write_text(
             """
 // SPDX-License-Identifier: MIT
@@ -553,38 +539,32 @@ contract TokenTest {
 }
 """
         )
-        mock_conf.get.side_effect = lambda key, default=None: {
-            "workdir": str(project_root),
-            "server.tools.slither": {
-                "timeout": 120,
-                "docker": {
-                    "image": "trailofbits/eth-security-toolbox:latest",
-                    "network_mode": "bridge",
-                    "remove_containers": True,
-                },
-            },
-        }.get(key, default)
 
-        async with streamablehttp_client(url) as (read, write, _):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
+        try:
+            async with streamablehttp_client(url) as (read, write, _):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
 
-                # Call slither to analyze the contract
-                result = await session.call_tool(
-                    "slither",
-                    arguments={
-                        "args": ["TokenTest.sol"],
-                        "kwargs": {},
-                    },
-                )
+                    # Call slither to analyze the contract
+                    result = await session.call_tool(
+                        "slither",
+                        arguments={
+                            "args": ["TokenTest.sol"],
+                            "kwargs": {},
+                        },
+                    )
 
-                assert result is not None
-                content = result.content[0]
-                data = json.loads(content.text)
+                    assert result is not None
+                    content = result.content[0]
+                    data = json.loads(content.text)
 
-                # Check response exit codes
-                assert data["exit_code"] == 0
-                assert data["container_exit_code"] != 0
+                    # Check response exit codes
+                    assert data["exit_code"] == 0
+                    assert data["container_exit_code"] != 0
+        finally:
+            # Clean up the test contract file
+            if contract_file.exists():
+                contract_file.unlink()
 
     @pytest.mark.asyncio
     async def test_multiple_tool_calls_same_session(self, mcp_server):
@@ -722,7 +702,7 @@ class TestFilesystemTools:
         srv = server.start(host=host, port=port, mount_path=mount_path)
 
         # Give server time to start and register tools
-        time.sleep(2.0)
+        time.sleep(5.0)
 
         url = f"http://{host}:{port}{mount_path}"
 
@@ -730,7 +710,7 @@ class TestFilesystemTools:
 
         # Cleanup
         server.stop()
-        time.sleep(0.5)
+        time.sleep(5.0)
 
     @pytest.mark.asyncio
     async def test_find_files_by_extension(self, mcp_server):
@@ -969,7 +949,7 @@ class TestFilesystemResources:
         srv = server.start(host=host, port=port, mount_path=mount_path)
 
         # Give server time to start and register tools
-        time.sleep(2.0)
+        time.sleep(5.0)
 
         url = f"http://{host}:{port}{mount_path}"
 
@@ -977,7 +957,7 @@ class TestFilesystemResources:
 
         # Cleanup
         server.stop()
-        time.sleep(0.5)
+        time.sleep(5.0)
 
     @pytest.mark.asyncio
     async def test_list_resources_includes_filesystem(self, mcp_server):

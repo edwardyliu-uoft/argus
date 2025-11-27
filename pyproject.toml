@@ -37,6 +37,9 @@ test = [
 ]
 dev = [
     "argus[test]",
+    "setuptools>=68.0",
+    "wheel",
+    "build",
     "pylint>=4.0.3",
     "black>=23.7.0",
     "ruff>=0.0.285",
@@ -49,6 +52,27 @@ argus = "argus.core.cli:main"
 [project.urls]
 Homepage = "https://github.com/calebchin/argus"
 Repository = "https://github.com/calebchin/argus"
+
+[project.entry-points."argus.llm.providers"]
+anthropic = "argus.llm.providers:AnthropicProviderPlugin"
+gemini = "argus.llm.providers:GeminiProviderPlugin"
+
+[project.entry-points."argus.mcp.tools"]
+filesystem = "argus.server.tools:FilesystemToolPlugin"
+mythril = "argus.server.tools:MythrilToolPlugin"
+slither = "argus.server.tools:SlitherToolPlugin"
+
+[project.entry-points."argus.mcp.resources"]
+filesystem = "argus.server.resources:FilesystemResourcePlugin"
+
+[project.entry-points."argus.mcp.prompts"]
+# reserved for future built-in prompt plugins
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.black]
 line-length = 88

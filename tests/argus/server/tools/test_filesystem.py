@@ -1,18 +1,22 @@
 """Tests for filesystem tools."""
 
-from unittest.mock import patch
 from pathlib import Path
 import tempfile
 import pytest
 
-from argus.server.tools import filesystem
+from argus.server.tools import FilesystemToolPlugin
 
 
 class TestFindFilesByExtension:
     """Tests for find_files_by_extension tool."""
 
+    @pytest.fixture(scope="class")
+    def filesystem(self):
+        """Filesystem tool plugin instance."""
+        return FilesystemToolPlugin()
+
     @pytest.mark.asyncio
-    async def test_find_sol_files(self):
+    async def test_find_sol_files(self, filesystem):
         """Test finding Solidity files."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create test files
@@ -22,302 +26,299 @@ class TestFindFilesByExtension:
             (Path(tmpdir) / "sub").mkdir()
             (Path(tmpdir) / "sub" / "Lib.sol").touch()
 
-            with patch("argus.server.tools.filesystem.conf") as mock_conf:
-                mock_conf.get.return_value = tmpdir
-
-                result = await filesystem.find_files_by_extension(
-                    extension="sol", recursive=True
-                )
-
-                assert result["success"] is True
-                assert result["count"] == 3
-                assert len(result["files"]) == 3
-                assert all("sol" in f for f in result["files"])
+            filesystem.initialize({"workdir": tmpdir})
+            res = await filesystem.find_files_by_extension(
+                extension="sol",
+                recursive=True,
+            )
+            assert res["success"] is True
+            assert res["count"] == 3
+            assert len(res["files"]) == 3
+            assert all("sol" in f for f in res["files"])
 
     @pytest.mark.asyncio
-    async def test_find_with_dot_extension(self):
+    async def test_find_with_dot_extension(self, filesystem):
         """Test finding files with dot prefix in extension."""
         with tempfile.TemporaryDirectory() as tmpdir:
             (Path(tmpdir) / "README.md").touch()
 
-            with patch("argus.server.tools.filesystem.conf") as mock_conf:
-                mock_conf.get.return_value = tmpdir
-
-                result = await filesystem.find_files_by_extension(extension=".md")
-
-                assert result["success"] is True
-                assert result["count"] == 1
+            filesystem.initialize({"workdir": tmpdir})
+            res = await filesystem.find_files_by_extension(extension=".md")
+            assert res["success"] is True
+            assert res["count"] == 1
 
     @pytest.mark.asyncio
-    async def test_find_non_recursive(self):
+    async def test_find_non_recursive(self, filesystem):
         """Test non-recursive file search."""
         with tempfile.TemporaryDirectory() as tmpdir:
             (Path(tmpdir) / "root.txt").touch()
             (Path(tmpdir) / "sub").mkdir()
             (Path(tmpdir) / "sub" / "nested.txt").touch()
 
-            with patch("argus.server.tools.filesystem.conf") as mock_conf:
-                mock_conf.get.return_value = tmpdir
-
-                result = await filesystem.find_files_by_extension(
-                    extension="txt", recursive=False
-                )
-
-                assert result["success"] is True
-                assert result["count"] == 1
+            filesystem.initialize({"workdir": tmpdir})
+            res = await filesystem.find_files_by_extension(
+                extension="txt",
+                recursive=False,
+            )
+            assert res["success"] is True
+            assert res["count"] == 1
 
     @pytest.mark.asyncio
-    async def test_find_nonexistent_directory(self):
+    async def test_find_nonexistent_directory(self, filesystem):
         """Test finding files in non-existent directory."""
-        result = await filesystem.find_files_by_extension(
+        filesystem.initialize()
+        res = await filesystem.find_files_by_extension(
             extension="sol", directory="/nonexistent/path"
         )
-
-        assert result["success"] is False
-        assert "does not exist" in result["error"]
+        assert res["success"] is False
+        assert "does not exist" in res["error"]
 
 
 class TestReadFile:
     """Tests for read_file tool."""
 
+    @pytest.fixture(scope="class")
+    def filesystem(self):
+        """Filesystem tool plugin instance."""
+        return FilesystemToolPlugin()
+
     @pytest.mark.asyncio
-    async def test_read_existing_file(self):
+    async def test_read_existing_file(self, filesystem):
         """Test reading an existing file."""
         with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
             f.write("test content")
             filepath = f.name
 
         try:
-            with patch("argus.server.tools.filesystem.conf") as mock_conf:
-                mock_conf.get.return_value = Path(filepath).parent
+            filesystem.initialize({"workdir": str(Path(filepath).parent)})
+            res = await filesystem.read_file(Path(filepath).name)
 
-                result = await filesystem.read_file(Path(filepath).name)
-
-                assert result["success"] is True
-                assert result["content"] == "test content"
-                assert result["total_size"] == 12
+            assert res["success"] is True
+            assert res["content"] == "test content"
+            assert res["total_size"] == 12
         finally:
             Path(filepath).unlink()
 
     @pytest.mark.asyncio
-    async def test_read_nonexistent_file(self):
+    async def test_read_nonexistent_file(self, filesystem):
         """Test reading a non-existent file."""
-        result = await filesystem.read_file("/nonexistent/file.txt")
+        filesystem.initialize()
+        res = await filesystem.read_file("/nonexistent/file.txt")
 
-        assert result["success"] is False
-        assert "does not exist" in result["error"]
+        assert res["success"] is False
+        assert "does not exist" in res["error"]
 
 
 class TestWriteFile:
     """Tests for write_file tool."""
 
+    @pytest.fixture(scope="class")
+    def filesystem(self):
+        """Filesystem tool plugin instance."""
+        return FilesystemToolPlugin()
+
     @pytest.mark.asyncio
-    async def test_write_new_file(self):
+    async def test_write_new_file(self, filesystem):
         """Test writing a new file."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch("argus.server.tools.filesystem.conf") as mock_conf:
-                mock_conf.get.return_value = tmpdir
+            filesystem.initialize({"workdir": tmpdir})
+            res = await filesystem.write_file(
+                file_path="test.txt", content="hello world"
+            )
 
-                result = await filesystem.write_file(
-                    file_path="test.txt", content="hello world"
-                )
-
-                assert result["success"] is True
-                assert result["total_size"] == 11
-                assert Path(result["path"]).exists()
-                assert Path(result["path"]).read_text(encoding="utf-8") == "hello world"
+            assert res["success"] is True
+            assert res["total_size"] == 11
+            assert Path(res["path"]).exists()
+            assert Path(res["path"]).read_text(encoding="utf-8") == "hello world"
 
     @pytest.mark.asyncio
-    async def test_write_creates_directory(self):
+    async def test_write_creates_directory(self, filesystem):
         """Test that write_file creates parent directories."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch("argus.server.tools.filesystem.conf") as mock_conf:
-                mock_conf.get.return_value = tmpdir
+            filesystem.initialize({"workdir": tmpdir})
+            res = await filesystem.write_file(
+                file_path="sub/dir/test.txt", content="nested"
+            )
 
-                result = await filesystem.write_file(
-                    file_path="sub/dir/test.txt", content="nested"
-                )
-
-                assert result["success"] is True
-                assert Path(result["path"]).exists()
+            assert res["success"] is True
+            assert Path(res["path"]).exists()
 
 
 class TestAppendFile:
     """Tests for append_file tool."""
 
+    @pytest.fixture(scope="class")
+    def filesystem(self):
+        """Filesystem tool plugin instance."""
+        return FilesystemToolPlugin()
+
     @pytest.mark.asyncio
-    async def test_append_to_existing_file(self):
+    async def test_append_to_existing_file(self, filesystem):
         """Test appending to an existing file."""
         with tempfile.TemporaryDirectory() as tmpdir:
             test_file = Path(tmpdir) / "test.txt"
             test_file.write_text("initial")
 
-            with patch("argus.server.tools.filesystem.conf") as mock_conf:
-                mock_conf.get.return_value = tmpdir
+            filesystem.initialize({"workdir": tmpdir})
+            res = await filesystem.append_file(
+                file_path="test.txt",
+                content=" appended",
+            )
 
-                result = await filesystem.append_file(
-                    file_path="test.txt",
-                    content=" appended",
-                )
-
-                assert result["success"] is True
-                assert result["appended_size"] == 9
-                assert test_file.read_text() == "initial appended"
+            assert res["success"] is True
+            assert res["appended_size"] == 9
+            assert test_file.read_text() == "initial appended"
 
     @pytest.mark.asyncio
-    async def test_append_creates_file(self):
+    async def test_append_creates_file(self, filesystem):
         """Test that append_file creates file if it doesn't exist."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch("argus.server.tools.filesystem.conf") as mock_conf:
-                mock_conf.get.return_value = tmpdir
+            filesystem.initialize({"workdir": tmpdir})
+            res = await filesystem.append_file(file_path="new.txt", content="content")
 
-                result = await filesystem.append_file(
-                    file_path="new.txt", content="content"
-                )
-
-                assert result["success"] is True
-                assert Path(result["path"]).exists()
+            assert res["success"] is True
+            assert Path(res["path"]).exists()
 
 
 class TestCreateDirectory:
     """Tests for create_directory tool."""
 
+    @pytest.fixture(scope="class")
+    def filesystem(self):
+        """Filesystem tool plugin instance."""
+        return FilesystemToolPlugin()
+
     @pytest.mark.asyncio
-    async def test_create_new_directory(self):
+    async def test_create_new_directory(self, filesystem):
         """Test creating a new directory."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch("argus.server.tools.filesystem.conf") as mock_conf:
-                mock_conf.get.return_value = tmpdir
+            filesystem.initialize({"workdir": tmpdir})
+            res = await filesystem.create_directory("newdir")
 
-                result = await filesystem.create_directory("newdir")
-
-                assert result["success"] is True
-                assert result["created"] is True
-                assert Path(result["path"]).is_dir()
+            assert res["success"] is True
+            assert res["created"] is True
+            assert Path(res["path"]).is_dir()
 
     @pytest.mark.asyncio
-    async def test_create_nested_directory(self):
+    async def test_create_nested_directory(self, filesystem):
         """Test creating nested directories."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch("argus.server.tools.filesystem.conf") as mock_conf:
-                mock_conf.get.return_value = tmpdir
+            filesystem.initialize({"workdir": tmpdir})
+            res = await filesystem.create_directory("sub/nested/deep")
 
-                result = await filesystem.create_directory("sub/nested/deep")
-
-                assert result["success"] is True
-                assert result["created"] is True
-                assert Path(result["path"]).is_dir()
+            assert res["success"] is True
+            assert res["created"] is True
+            assert Path(res["path"]).is_dir()
 
     @pytest.mark.asyncio
-    async def test_create_existing_directory(self):
+    async def test_create_existing_directory(self, filesystem):
         """Test creating an already existing directory."""
         with tempfile.TemporaryDirectory() as tmpdir:
             existing = Path(tmpdir) / "existing"
             existing.mkdir()
 
-            with patch("argus.server.tools.filesystem.conf") as mock_conf:
-                mock_conf.get.return_value = tmpdir
+            filesystem.initialize({"workdir": tmpdir})
+            res = await filesystem.create_directory("existing")
 
-                result = await filesystem.create_directory("existing")
-
-                assert result["success"] is True
-                assert result["created"] is False
+            assert res["success"] is True
+            assert res["created"] is False
 
 
 class TestListDirectory:
     """Tests for list_directory tool."""
 
+    @pytest.fixture(scope="class")
+    def filesystem(self):
+        """Filesystem tool plugin instance."""
+        return FilesystemToolPlugin()
+
     @pytest.mark.asyncio
-    async def test_list_directory_contents(self):
+    async def test_list_directory_contents(self, filesystem):
         """Test listing directory contents."""
         with tempfile.TemporaryDirectory() as tmpdir:
             (Path(tmpdir) / "file1.txt").touch()
             (Path(tmpdir) / "file2.txt").touch()
             (Path(tmpdir) / "subdir").mkdir()
 
-            with patch("argus.server.tools.filesystem.conf") as mock_conf:
-                mock_conf.get.return_value = tmpdir
+            filesystem.initialize({"workdir": tmpdir})
+            res = await filesystem.list_directory()
 
-                result = await filesystem.list_directory()
-
-                assert result["success"] is True
-                assert result["count"] == 3
-                assert len(result["items"]) == 3
+            assert res["success"] is True
+            assert res["count"] == 3
+            assert len(res["items"]) == 3
 
     @pytest.mark.asyncio
-    async def test_list_files_only(self):
+    async def test_list_files_only(self, filesystem):
         """Test listing only files."""
         with tempfile.TemporaryDirectory() as tmpdir:
             (Path(tmpdir) / "file.txt").touch()
             (Path(tmpdir) / "dir").mkdir()
 
-            with patch("argus.server.tools.filesystem.conf") as mock_conf:
-                mock_conf.get.return_value = tmpdir
+            filesystem.initialize({"workdir": tmpdir})
+            res = await filesystem.list_directory(include_dirs=False)
 
-                result = await filesystem.list_directory(include_dirs=False)
-
-                assert result["success"] is True
-                assert result["count"] == 1
-                assert result["items"][0]["type"] == "file"
+            assert res["success"] is True
+            assert res["count"] == 1
+            assert res["items"][0]["type"] == "file"
 
     @pytest.mark.asyncio
-    async def test_list_recursive(self):
+    async def test_list_recursive(self, filesystem):
         """Test recursive directory listing."""
         with tempfile.TemporaryDirectory() as tmpdir:
             (Path(tmpdir) / "root.txt").touch()
             (Path(tmpdir) / "sub").mkdir()
             (Path(tmpdir) / "sub" / "nested.txt").touch()
 
-            with patch("argus.server.tools.filesystem.conf") as mock_conf:
-                mock_conf.get.return_value = tmpdir
+            filesystem.initialize({"workdir": tmpdir})
+            res = await filesystem.list_directory(recursive=True)
 
-                result = await filesystem.list_directory(recursive=True)
-
-                assert result["success"] is True
-                assert result["count"] >= 2
+            assert res["success"] is True
+            assert res["count"] >= 2
 
 
 class TestReadFileInfo:
     """Tests for read_file_info tool."""
 
+    @pytest.fixture(scope="class")
+    def filesystem(self):
+        """Filesystem tool plugin instance."""
+        return FilesystemToolPlugin()
+
     @pytest.mark.asyncio
-    async def test_get_file_info_existing(self):
+    async def test_get_file_info_existing(self, filesystem):
         """Test getting info for existing file."""
         with tempfile.NamedTemporaryFile(mode="w", delete=False) as f:
             f.write("test")
             filepath = f.name
 
         try:
-            with patch("argus.server.tools.filesystem.conf") as mock_conf:
-                mock_conf.get.return_value = Path(filepath).parent
+            filesystem.initialize({"workdir": str(Path(filepath).parent)})
+            res = await filesystem.read_file_info(Path(filepath).name)
 
-                result = await filesystem.read_file_info(Path(filepath).name)
-
-                assert result["success"] is True
-                assert result["exists"] is True
-                assert result["type"] == "file"
-                assert result["total_size"] > 0
+            assert res["success"] is True
+            assert res["exists"] is True
+            assert res["type"] == "file"
+            assert res["total_size"] > 0
         finally:
             Path(filepath).unlink()
 
     @pytest.mark.asyncio
-    async def test_get_file_info_nonexistent(self):
+    async def test_get_file_info_nonexistent(self, filesystem):
         """Test getting info for non-existent file."""
-        result = await filesystem.read_file_info("/nonexistent/file.txt")
+        filesystem.initialize()
+        res = await filesystem.read_file_info("/nonexistent/file.txt")
 
-        assert result["success"] is True
-        assert result["exists"] is False
-        assert result["type"] is None
+        assert res["success"] is True
+        assert res["exists"] is False
+        assert res["type"] is None
 
     @pytest.mark.asyncio
-    async def test_get_directory_info(self):
+    async def test_get_directory_info(self, filesystem):
         """Test getting info for directory."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch("argus.server.tools.filesystem.conf") as mock_conf:
-                mock_conf.get.return_value = Path(tmpdir).parent
+            filesystem.initialize({"workdir": str(Path(tmpdir).parent)})
+            res = await filesystem.read_file_info(Path(tmpdir).name)
 
-                result = await filesystem.read_file_info(Path(tmpdir).name)
-
-                assert result["success"] is True
-                assert result["exists"] is True
-                assert result["type"] == "directory"
+            assert res["success"] is True
+            assert res["exists"] is True
+            assert res["type"] == "directory"
