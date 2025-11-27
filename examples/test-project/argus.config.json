@@ -13,7 +13,7 @@
     },
     "gemini": {
       "provider": "gemini",
-      "model": "gemini-2.5-flash",
+      "model": "gemini-2.5-pro",
       "api_key": "GEMINI_API_KEY",
       "max_retries": 3,
       "timeout": 300,
@@ -51,6 +51,11 @@
           "write_file",
           "append_file",
           "create_directory"
+        ]
+      },
+      "command": {
+        "functions": [
+          "run_command"
         ]
       }
     },

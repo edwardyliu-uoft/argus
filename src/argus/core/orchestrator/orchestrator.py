@@ -43,6 +43,7 @@ class OrchestrationState:
 
         # Phase 4: Static analysis
         self.static_analysis_results: Dict[str, Dict] = {}
+        self.static_analysis_summary: str = ""  # Overall summary across all contracts
         self.tool_decisions: Dict[str, List[str]] = {}  # contract -> [tools_to_run]
 
         # Phase 5: Endpoints
@@ -113,30 +114,28 @@ class ArgusOrchestrator:
             # Phase 4: Static Analysis
             await self.phase4_static_analysis()
 
-            # TODO: Uncomment when ready to test remaining phases
-            # # Phase 5: Endpoint Extraction
-            # await self.phase5_endpoint_extraction()
+            # Phase 5: Endpoint Extraction
+            await self.phase5_endpoint_extraction()
 
-            # # Phase 6: Test Generation & Execution
-            # await self.phase6_test_generation()
+            # Phase 6: Test Generation & Execution
+            await self.phase6_test_generation()
 
-            # # Phase 7: Report Generation
-            # await self.phase7_report_generation()
+            # Phase 7: Report Generation
+            await self.phase7_report_generation()
 
             # Summary
             duration = (datetime.now() - self.state.start_time).total_seconds()
             _logger.info("=" * 80)
             _logger.info("Analysis complete in %.1fs", duration)
-            # _logger.info(f"Report: {self.state.report_path}")
+            _logger.info("Report: %s", self.state.report_path)
             _logger.info("=" * 80)
 
             return {
                 "success": True,
                 "duration": duration,
-                # "report_path": str(self.state.report_path),
+                "report_path": str(self.state.report_path),
                 "contracts_analyzed": len(self.state.contracts),
-                # "vulnerabilities_found": self._count_vulnerabilities(),
-                # "tests_generated": len(self.state.generated_tests),
+                "tests_generated": len(self.state.generated_tests),
                 "errors": self.state.errors,
             }
 
@@ -217,25 +216,25 @@ class ArgusOrchestrator:
                     doc_name = doc_file.stem
                     self.state.documentation[doc_name] = utils.read_file(str(doc_file))
                 _logger.info("Found %d documentation files", len(doc_files))
-
+            
+            # NOTE: not sure if we need this initial summary
             # Generate initial analysis summary using LLM
-            if self.state.contracts:
-                contract_list = [
-                    str(c.relative_to(self.project_path)) for c in self.state.contracts
-                ]
-                doc_list = list(self.state.documentation.keys())
+            # if self.state.contracts:
+            #     contract_list = [
+            #         str(c.relative_to(self.project_path)) for c in self.state.contracts
+            #     ]
+            #     doc_list = list(self.state.documentation.keys())
 
-                prompt = prompts.initialization_summary_prompt(
-                    contracts=contract_list, docs=doc_list
-                )
+            #     prompt = prompts.initialization_summary_prompt(
+            #         contracts=contract_list, docs=doc_list
+            #     )
 
-                # TODO: Call LLM to generate initial summary
-                # response = await self.llm.generate_text(prompt)
-                # summary = parse_json_llm(response)
-                # Write summary to output directory
-                # write_file(self.output_dir / "initialization_summary.json", json.dumps(summary, indent=2))
+            #     response = await self.llm.generate_text(prompt)
+            #     summary = parse_json_llm(response)
+            #     # Write summary to output directory
+            #     # write_file(self.output_dir / "initialization_summary.json", json.dumps(summary, indent=2))
 
-                _logger.info("Initial discovery complete")
+            _logger.info("Initial discovery complete")
 
         except Exception as e:
             _logger.error("Phase 1 failed: %s", e, exc_info=True)
@@ -314,7 +313,7 @@ class ArgusOrchestrator:
             _logger.debug("=" * 80)
 
             # Call LLM for semantic analysis
-            response = self.llm.call_simple(prompt)
+            response = await self.llm.call_simple(prompt)
 
             # Log the raw LLM response for debugging
             _logger.info("=" * 80)
@@ -395,11 +394,15 @@ class ArgusOrchestrator:
                 or "No additional documentation found"
             )
 
-            contract_names = [c.name for c in self.state.contracts]
+            # Read contract code for project-level analysis
+            contracts_data = {}
+            for contract in self.state.contracts:
+                code = utils.read_file(str(contract))
+                contracts_data[contract.name] = code
 
             # Generate project-level analysis prompt
             prompt = prompts.project_semantic_analysis_prompt(
-                readme=readme, all_docs=other_docs, contracts=contract_names
+                readme=readme, all_docs=other_docs, contracts=contracts_data
             )
 
             # Log the prompt being sent (for debugging)
@@ -410,7 +413,7 @@ class ArgusOrchestrator:
             _logger.debug("=" * 80)
 
             # Call LLM for project-level analysis
-            response = self.llm.call_simple(prompt)
+            response = await self.llm.call_simple(prompt)
 
             # Log the raw LLM response for debugging
             _logger.info("=" * 80)
@@ -473,7 +476,7 @@ class ArgusOrchestrator:
                 _logger.debug("=" * 80)
 
                 # Call LLM for cross-contract analysis
-                response = self.llm.call_simple(prompt)
+                response = await self.llm.call_simple(prompt)
 
                 # Log the raw LLM response for debugging
                 _logger.info("=" * 80)
@@ -724,14 +727,49 @@ class ArgusOrchestrator:
                 file_path=str(contract_path.relative_to(self.project_path)), code=code
             )
 
-            # TODO: Call LLM for endpoint extraction
-            # response = await self.llm.generate_text(prompt)
-            # endpoints_data = parse_json_llm(response)
-            # self.state.endpoints[contract_name] = endpoints_data.get("endpoints", [])
+            # Call LLM for endpoint extraction
+            response = await self.llm.call_simple(prompt)
 
-            # For now, initialize empty endpoints
-            # TODO: REMOVE THIS WHEN LLM IS INTEGRATED
-            self.state.endpoints[contract_name] = []
+            # Log the raw LLM response for debugging
+            _logger.info("=" * 80)
+            _logger.info("LLM RESPONSE (Phase 5 - %s):", contract_name)
+            _logger.info("=" * 80)
+            _logger.info(response)
+            _logger.info("=" * 80)
+
+            # Parse the LLM response
+            # Expected format: JSON array directly or {"endpoints": [...]}
+            try:
+                endpoints_data = utils.parse_json_llm(response)
+
+                # Handle different response formats
+                if isinstance(endpoints_data, list):
+                    # Direct array of endpoints
+                    self.state.endpoints[contract_name] = endpoints_data
+                elif isinstance(endpoints_data, dict):
+                    # Wrapped in object with "endpoints" key
+                    self.state.endpoints[contract_name] = endpoints_data.get("endpoints", [])
+                else:
+                    _logger.warning(
+                        "Unexpected endpoint extraction response format for %s",
+                        contract_name
+                    )
+                    self.state.endpoints[contract_name] = []
+
+                _logger.info(
+                    "Successfully parsed %d endpoints from %s",
+                    len(self.state.endpoints[contract_name]),
+                    contract_name,
+                )
+
+            # pylint: disable=broad-except
+            except Exception as e:
+                _logger.warning(
+                    "Failed to parse endpoint extraction response for %s: %s",
+                    contract_name,
+                    e
+                )
+                self.state.endpoints[contract_name] = []
 
             _logger.info(
                 "Extracted %d endpoints from %s",
@@ -747,8 +785,202 @@ class ArgusOrchestrator:
             self.state.errors.append(f"Phase 5 ({contract_path.name}): {str(e)}")
 
     # =========================================================================
+    # PHASE 6: TEST GENERATION & EXECUTION
+    # =========================================================================
+
+    async def phase6_test_generation(self) -> None:
+        """Phase 6: Test Generation & Execution.
+
+        Generates security tests based on vulnerabilities found in previous phases
+        and optionally executes them to confirm exploitability.
+        """
+        _logger.info("=" * 80)
+        _logger.info("PHASE 6: TEST GENERATION & EXECUTION")
+        _logger.info("=" * 80)
+
+        self.state.current_phase = "test_generation"
+
+        if not self.state.contracts:
+            _logger.warning("No contracts to generate tests for, skipping Phase 6")
+            return
+
+        try:
+            # Ensure Hardhat is installed before test generation begins
+            # This prevents npx prompts during the iterative test generation process
+            await self._ensure_hardhat_installed()
+            # Import generator
+            from argus.core.generator import TestGenerator
+
+            # Create generator instance with all analysis results
+            generator = TestGenerator(
+                contracts=self.state.contracts,
+                file_semantic_findings=self.state.file_semantic_findings,
+                project_semantic_findings=self.state.project_semantic_findings,
+                cross_contract_findings=self.state.cross_contract_findings,
+                static_analysis_results=self.state.static_analysis_results,
+                endpoints=self.state.endpoints,
+                output_dir=self.output_dir,
+                project_path=self.project_path,
+            )
+
+            # Generate tests
+            _logger.info("Generating security tests...")
+            test_paths, test_results = await generator.generate_tests()
+
+            # Update state
+            self.state.generated_tests = test_paths
+            self.state.test_results = test_results
+
+            _logger.info(
+                "Phase 6 complete: %d tests generated",
+                test_results.get("tests_generated", 0)
+            )
+
+            # Log summary of generated tests
+            for test_path in test_paths:
+                _logger.info("\tGenerated: %s", test_path.name)
+
+        except Exception as e:
+            _logger.error("Phase 6 failed: %s", e, exc_info=True)
+            self.state.errors.append(f"Phase 6: {str(e)}")
+            raise
+
+    # =========================================================================
+    # PHASE 7: REPORT GENERATION
+    # =========================================================================
+
+    async def phase7_report_generation(self) -> None:
+        """Phase 7: Report Generation.
+
+        Generates a comprehensive final report consolidating all analysis phases.
+        """
+        _logger.info("=" * 80)
+        _logger.info("PHASE 7: REPORT GENERATION")
+        _logger.info("=" * 80)
+
+        self.state.current_phase = "report_generation"
+
+        try:
+            # Calculate analysis duration
+            duration = (datetime.now() - self.state.start_time).total_seconds()
+            timestamp = self.state.start_time.strftime("%Y-%m-%d %H:%M:%S")
+
+            # Save raw analysis data to JSON file for reference
+            import json
+            raw_data = {
+                "timestamp": timestamp,
+                "duration": duration,
+                "contracts": [str(c.relative_to(self.project_path)) for c in self.state.contracts],
+                "file_semantic_findings": self.state.file_semantic_findings,
+                "project_semantic_findings": self.state.project_semantic_findings,
+                "cross_contract_findings": self.state.cross_contract_findings,
+                "static_analysis_results": self.state.static_analysis_results,
+                "endpoints": self.state.endpoints,
+                "test_results": self.state.test_results,
+            }
+            raw_data_path = self.output_dir / "raw-analysis-data.json"
+            utils.write_file(str(raw_data_path), json.dumps(raw_data, indent=2))
+            _logger.info("Saved raw analysis data to %s", raw_data_path.name)
+
+            # Build comprehensive prompt with all phase results
+            prompt = prompts.report_generation_prompt(
+                timestamp=timestamp,
+                duration=duration,
+                file_semantic_findings=self.state.file_semantic_findings,
+                project_semantic_findings=self.state.project_semantic_findings,
+                cross_contract_findings=self.state.cross_contract_findings,
+                static_analysis_results=self.state.static_analysis_results,
+                endpoints=self.state.endpoints,
+                test_results=self.state.test_results,
+                contracts=self.state.contracts,
+            )
+
+            _logger.info("Generating comprehensive final report...")
+
+            # Call LLM to generate the report
+            report_content = await self.llm.call_simple(prompt)
+
+            # Log the raw LLM response for debugging
+            _logger.debug("=" * 80)
+            _logger.debug("LLM RESPONSE (Phase 7 - Report Generation):")
+            _logger.debug("=" * 80)
+            _logger.debug(report_content[:1000] + "..." if len(report_content) > 1000 else report_content)
+            _logger.debug("=" * 80)
+
+            # Write report to file
+            report_filename = "argus-security-report.md"
+            report_path = self.output_dir / report_filename
+            utils.write_file(str(report_path), report_content)
+
+            # Update state
+            self.state.report_path = report_path
+
+            _logger.info("Phase 7 complete: Report generated at %s", report_path)
+
+        except Exception as e:
+            _logger.error("Phase 7 failed: %s", e, exc_info=True)
+            self.state.errors.append(f"Phase 7: {str(e)}")
+            raise
+
+    # =========================================================================
     # HELPER METHODS
     # =========================================================================
+
+    async def _ensure_hardhat_installed(self) -> None:
+        """Ensure Hardhat dependencies are installed to prevent interactive prompts.
+
+        Runs `npm install` to install dependencies from package.json if node_modules
+        doesn't exist or is incomplete. This is called once at the start of Phase 6
+        (test generation) to ensure Hardhat is available for compile/test cycles.
+        """
+        try:
+            _logger.info("Checking Hardhat installation...")
+
+            # Check if package.json exists
+            package_json = self.project_path / "package.json"
+            if not package_json.exists():
+                _logger.warning("No package.json found - Hardhat may not be configured")
+                return
+
+            # Check if node_modules exists and has hardhat
+            node_modules = self.project_path / "node_modules"
+            hardhat_installed = (node_modules / "hardhat").exists()
+
+            if hardhat_installed:
+                _logger.info("✓ Hardhat is already installed")
+                return
+
+            # Install dependencies
+            _logger.info("Installing Hardhat dependencies (this may take a minute)...")
+            process = await asyncio.create_subprocess_exec(
+                "npm",
+                "install",
+                cwd=str(self.project_path),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+
+            _, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=180  # 3 minutes for npm install
+            )
+
+            if process.returncode == 0:
+                _logger.info("✓ Hardhat dependencies installed successfully")
+            else:
+                _logger.warning("npm install returned non-zero exit code: %d", process.returncode)
+                stderr_str = stderr.decode("utf-8", errors="replace")
+                if stderr_str:
+                    _logger.debug("STDERR: %s", stderr_str[:500])
+                # Log but don't fail - LLM might still be able to work with it
+
+        except asyncio.TimeoutError:
+            _logger.warning("npm install timed out - dependencies may be incomplete")
+        except FileNotFoundError:
+            _logger.warning("npm not found - Node.js may not be installed")
+        except Exception as e:
+            _logger.warning("Failed to install Hardhat dependencies: %s", e)
+            # Don't raise - this is just a setup step
 
     def _process_static_analysis_results(
         self,
@@ -832,7 +1064,26 @@ class ArgusOrchestrator:
                         "findings"
                     ].append(finding)
 
-        # Store overall summary
-        summary = analysis_results.get("summary", "")
-        for contract_name in self.state.static_analysis_results:
-            self.state.static_analysis_results[contract_name]["analysis"] = summary
+        # Store overall summary at the phase level
+        self.state.static_analysis_summary = analysis_results.get("summary", "")
+
+        # Generate per-contract analysis summaries based on their findings
+        for contract_name, results in self.state.static_analysis_results.items():
+            findings = results.get("findings", [])
+            tools_used = results.get("tools_used", [])
+
+            if findings:
+                # Create a summary for this specific contract
+                high_severity = [f for f in findings if f.get("severity") == "high"]
+                medium_severity = [f for f in findings if f.get("severity") == "medium"]
+                low_severity = [f for f in findings if f.get("severity") == "low"]
+
+                summary_parts = [
+                    f"Analysis of {contract_name} using {', '.join(tools_used)}:",
+                    f"- {len(high_severity)} high severity issues",
+                    f"- {len(medium_severity)} medium severity issues",
+                    f"- {len(low_severity)} low severity issues"
+                ]
+                results["analysis"] = "\n".join(summary_parts)
+            else:
+                results["analysis"] = f"No security issues found in {contract_name} using {', '.join(tools_used) if tools_used else 'no tools'}"

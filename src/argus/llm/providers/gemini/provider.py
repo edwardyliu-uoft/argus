@@ -193,7 +193,7 @@ class GeminiProvider(BaseLLMProvider):
         # Max iterations reached
         return "Max function call iterations reached"
 
-    def call_simple(self, prompt: str) -> str:
+    async def call_simple(self, prompt: str) -> str:
         """
         Call Gemini without function calling (simple text completion).
 

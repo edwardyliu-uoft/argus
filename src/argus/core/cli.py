@@ -76,7 +76,10 @@ async def _analyze(project_root: str, verbose: bool) -> int:
         if result.get("success"):
             logger.info("\nAnalysis completed successfully")
             logger.info("\tContracts analyzed: %d", result.get("contracts_analyzed", 0))
+            logger.info("\tTests generated: %d", result.get("tests_generated", 0))
             logger.info("\tDuration: %.1f s", result.get("duration", 0))
+            if result.get("report_path"):
+                logger.info("\tReport: %s", result.get("report_path"))
             return 0
         else:
             logger.error("\nAnalysis failed: %s", result.get("error", "Unknown error"))
