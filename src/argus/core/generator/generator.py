@@ -85,14 +85,16 @@ class TestGenerator:
                 contract_findings = self._collect_contract_findings(contract_name)
 
                 if not contract_findings:
-                    _logger.debug("Skipping %s: no contract-specific findings", contract_name)
+                    _logger.debug(
+                        "Skipping %s: no contract-specific findings", contract_name
+                    )
                     continue
 
                 # Generate test file for this contract
                 _logger.info(
                     "Generating tests for %s (%d contract-specific findings)",
                     contract_name,
-                    len(contract_findings)
+                    len(contract_findings),
                 )
 
                 test_path = await self._generate_contract_tests(
@@ -134,12 +136,18 @@ class TestGenerator:
             semantic_findings = self.file_semantic_findings[contract_name]
             for finding in semantic_findings:
                 # Tag with source phase
-                finding_with_source = {**finding, "source_phase": "semantic_analysis_file"}
+                finding_with_source = {
+                    **finding,
+                    "source_phase": "semantic_analysis_file",
+                }
                 contract_findings.append(finding_with_source)
 
         # Phase 3: Cross-contract findings involving this contract
         for finding in self.cross_contract_findings:
-            finding_with_source = {**finding, "source_phase": "semantic_analysis_cross_contract"}
+            finding_with_source = {
+                **finding,
+                "source_phase": "semantic_analysis_cross_contract",
+            }
             # Include if involves this contract
             if "contracts" in finding and contract_name in finding.get("contracts", []):
                 contract_findings.append(finding_with_source)
@@ -148,7 +156,9 @@ class TestGenerator:
 
         # Phase 4: Static analysis findings
         if contract_name in self.static_analysis_results:
-            static_findings = self.static_analysis_results[contract_name].get("findings", [])
+            static_findings = self.static_analysis_results[contract_name].get(
+                "findings", []
+            )
             for finding in static_findings:
                 finding_with_source = {**finding, "source_phase": "static_analysis"}
                 contract_findings.append(finding_with_source)
@@ -179,7 +189,9 @@ class TestGenerator:
             contract_endpoints = self.endpoints.get(contract_name, [])
 
             if not contract_endpoints:
-                _logger.warning("No endpoints found for %s, skipping test generation", contract_name)
+                _logger.warning(
+                    "No endpoints found for %s, skipping test generation", contract_name
+                )
                 return None
 
             # Extract contract name without .sol extension
@@ -208,7 +220,9 @@ class TestGenerator:
                 project_root=self.project_path,
             )
 
-            _logger.debug("Generating tests for %s using LLM with tool access...", contract_name)
+            _logger.debug(
+                "Generating tests for %s using LLM with tool access...", contract_name
+            )
 
             # Call LLM with tool access to write, compile, and test files
             # The LLM will iteratively fix compilation and runtime errors
@@ -230,11 +244,15 @@ class TestGenerator:
                 _logger.info("  LLM completed test generation successfully")
                 return test_path
             else:
-                _logger.warning("✗ LLM did not create expected test file: %s", test_path)
+                _logger.warning(
+                    "✗ LLM did not create expected test file: %s", test_path
+                )
                 return None
 
         except Exception as e:
-            _logger.error("Failed to generate tests for %s: %s", contract_name, e, exc_info=True)
+            _logger.error(
+                "Failed to generate tests for %s: %s", contract_name, e, exc_info=True
+            )
             return None
 
     def _get_filesystem_tools(self) -> List[Dict]:

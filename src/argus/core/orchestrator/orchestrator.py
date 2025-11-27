@@ -15,9 +15,8 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 
+from argus import utils, server as mcp_server, llm
 from argus.core import conf
-from argus import utils, server as mcp_server
-from argus.llm import get_llm_provider
 from argus.core.orchestrator import prompts
 
 _logger = logging.getLogger("argus.console")
@@ -75,7 +74,7 @@ class ArgusOrchestrator:
 
         # Initialize LLM provider
         llm_provider_name = self.config.get("orchestrator.llm", "anthropic")
-        self.llm = get_llm_provider(llm_provider_name)
+        self.llm = llm.get_llm_provider(llm_provider_name)
         self.llm.initialize_client()
 
         # Set up output directory
@@ -216,7 +215,7 @@ class ArgusOrchestrator:
                     doc_name = doc_file.stem
                     self.state.documentation[doc_name] = utils.read_file(str(doc_file))
                 _logger.info("Found %d documentation files", len(doc_files))
-            
+
             # NOTE: not sure if we need this initial summary
             # Generate initial analysis summary using LLM
             # if self.state.contracts:
@@ -748,11 +747,13 @@ class ArgusOrchestrator:
                     self.state.endpoints[contract_name] = endpoints_data
                 elif isinstance(endpoints_data, dict):
                     # Wrapped in object with "endpoints" key
-                    self.state.endpoints[contract_name] = endpoints_data.get("endpoints", [])
+                    self.state.endpoints[contract_name] = endpoints_data.get(
+                        "endpoints", []
+                    )
                 else:
                     _logger.warning(
                         "Unexpected endpoint extraction response format for %s",
-                        contract_name
+                        contract_name,
                     )
                     self.state.endpoints[contract_name] = []
 
@@ -767,7 +768,7 @@ class ArgusOrchestrator:
                 _logger.warning(
                     "Failed to parse endpoint extraction response for %s: %s",
                     contract_name,
-                    e
+                    e,
                 )
                 self.state.endpoints[contract_name] = []
 
@@ -833,7 +834,7 @@ class ArgusOrchestrator:
 
             _logger.info(
                 "Phase 6 complete: %d tests generated",
-                test_results.get("tests_generated", 0)
+                test_results.get("tests_generated", 0),
             )
 
             # Log summary of generated tests
@@ -867,10 +868,13 @@ class ArgusOrchestrator:
 
             # Save raw analysis data to JSON file for reference
             import json
+
             raw_data = {
                 "timestamp": timestamp,
                 "duration": duration,
-                "contracts": [str(c.relative_to(self.project_path)) for c in self.state.contracts],
+                "contracts": [
+                    str(c.relative_to(self.project_path)) for c in self.state.contracts
+                ],
                 "file_semantic_findings": self.state.file_semantic_findings,
                 "project_semantic_findings": self.state.project_semantic_findings,
                 "cross_contract_findings": self.state.cross_contract_findings,
@@ -904,7 +908,11 @@ class ArgusOrchestrator:
             _logger.debug("=" * 80)
             _logger.debug("LLM RESPONSE (Phase 7 - Report Generation):")
             _logger.debug("=" * 80)
-            _logger.debug(report_content[:1000] + "..." if len(report_content) > 1000 else report_content)
+            _logger.debug(
+                report_content[:1000] + "..."
+                if len(report_content) > 1000
+                else report_content
+            )
             _logger.debug("=" * 80)
 
             # Write report to file
@@ -961,14 +969,15 @@ class ArgusOrchestrator:
             )
 
             _, stderr = await asyncio.wait_for(
-                process.communicate(),
-                timeout=180  # 3 minutes for npm install
+                process.communicate(), timeout=180  # 3 minutes for npm install
             )
 
             if process.returncode == 0:
                 _logger.info("✓ Hardhat dependencies installed successfully")
             else:
-                _logger.warning("npm install returned non-zero exit code: %d", process.returncode)
+                _logger.warning(
+                    "npm install returned non-zero exit code: %d", process.returncode
+                )
                 stderr_str = stderr.decode("utf-8", errors="replace")
                 if stderr_str:
                     _logger.debug("STDERR: %s", stderr_str[:500])
@@ -1082,8 +1091,10 @@ class ArgusOrchestrator:
                     f"Analysis of {contract_name} using {', '.join(tools_used)}:",
                     f"- {len(high_severity)} high severity issues",
                     f"- {len(medium_severity)} medium severity issues",
-                    f"- {len(low_severity)} low severity issues"
+                    f"- {len(low_severity)} low severity issues",
                 ]
                 results["analysis"] = "\n".join(summary_parts)
             else:
-                results["analysis"] = f"No security issues found in {contract_name} using {', '.join(tools_used) if tools_used else 'no tools'}"
+                results["analysis"] = (
+                    f"No security issues found in {contract_name} using {', '.join(tools_used) if tools_used else 'no tools'}"
+                )

@@ -40,7 +40,9 @@ def test_generation_prompt(
 
     # Section 1: Project-level semantic analysis (ALWAYS included)
     sections.append("## Project-Level Semantic Analysis\n")
-    sections.append("**Important**: The following findings apply to the entire project and provide important context.\n")
+    sections.append(
+        "**Important**: The following findings apply to the entire project and provide important context.\n"
+    )
 
     if project_semantic_findings:
         sections.append("**Project Findings**:")
@@ -65,7 +67,8 @@ def test_generation_prompt(
 
     # Section 4: Instructions
     sections.append("\n## Your Task\n")
-    sections.append(f"""
+    sections.append(
+        f"""
 Generate comprehensive Hardhat test cases for the {contract_name} contract that:
 
 1. **Demonstrate all vulnerabilities** found in the analysis (both contract-specific and relevant project-level issues)
@@ -175,6 +178,7 @@ You MUST follow this workflow to ensure tests compile and run correctly:
 - Focus on the most critical vulnerabilities first
 - Each test should be clear and well-commented
 - Clearly document which tests are expected to pass vs fail
-""")
+"""
+    )
 
     return "\n".join(sections)

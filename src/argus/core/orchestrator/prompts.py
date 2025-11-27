@@ -182,10 +182,7 @@ def project_semantic_analysis_prompt(
     """
     # Format contracts for the prompt
     contracts_text = "\n\n".join(
-        [
-            f"**{name}**:\n```solidity\n{code}\n```"
-            for name, code in contracts.items()
-        ]
+        [f"**{name}**:\n```solidity\n{code}\n```" for name, code in contracts.items()]
     )
 
     return f"""
