@@ -120,7 +120,7 @@ class BaseLLMProvider(ABC):
         try:
             # Initialize MCP session if not already done (lazy initialization)
             if self.__mcp_session is None:
-                await self._initialize__mcp_session()
+                await self._initialize_mcp_session()
 
             # Call the tool using the persistent session
             result = await self._call_mcp_tool(tool_name, tool_args)
@@ -129,7 +129,7 @@ class BaseLLMProvider(ABC):
         except Exception as e:
             raise RuntimeError(f"Tool execution error: {e}", e) from e
 
-    async def _initialize__mcp_session(self) -> None:
+    async def _initialize_mcp_session(self) -> None:
         """
         Initialize persistent MCP client session.
         Called lazily on first tool execution.
@@ -183,7 +183,7 @@ class BaseLLMProvider(ABC):
         else:
             return {"content": [str(result)], "raw": str(result)}
 
-    async def cleanup__mcp_session(self) -> None:
+    async def cleanup_mcp_session(self) -> None:
         """
         Close the MCP client session and cleanup resources.
         Should be called when tool calling is complete.
