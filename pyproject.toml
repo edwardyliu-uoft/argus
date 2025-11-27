@@ -59,6 +59,7 @@ gemini = "argus.llm.providers:GeminiProviderPlugin"
 
 [project.entry-points."argus.mcp.tools"]
 filesystem = "argus.server.tools:FilesystemToolPlugin"
+shell = "argus.server.tools:ShellToolPlugin"
 mythril = "argus.server.tools:MythrilToolPlugin"
 slither = "argus.server.tools:SlitherToolPlugin"
 

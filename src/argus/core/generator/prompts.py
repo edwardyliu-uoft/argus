@@ -137,7 +137,7 @@ You MUST follow this workflow to ensure tests compile and run correctly:
    - Use proper Solidity syntax with SPDX license and pragma statements
 
 3. **Compile Contracts**:
-   - Run: `run_command` with command="npx", args=["hardhat", "compile"], cwd="{project_root}"
+   - Run: `hardhat` with command="compile", cwd="{project_root}"
    - If compilation FAILS:
      - Read the error output carefully
      - Common issues: syntax errors, missing imports, wrong Solidity version, missing contracts
@@ -146,7 +146,7 @@ You MUST follow this workflow to ensure tests compile and run correctly:
    - Repeat until compilation succeeds
 
 4. **Run Tests**:
-   - Run: `run_command` with command="npx", args=["hardhat", "test", "{output_path}"], cwd="{project_root}"
+   - Run: `hardhat` with command="test", args=["{output_path}"], cwd="{project_root}"
    - Analyze the output carefully:
      - ✓ PASSING tests = Good (vulnerability confirmed or expected behavior)
      - ✗ FAILING tests = Check if expected or unexpected
@@ -159,13 +159,13 @@ You MUST follow this workflow to ensure tests compile and run correctly:
    - Repeat until tests run without unexpected failures
 
 5. **Clean on Error** (optional):
-   - If you encounter caching issues, run: `run_command` with command="npx", args=["hardhat", "clean"], cwd="{project_root}"
+   - If you encounter caching issues, run: `hardhat` with command="clean", cwd="{project_root}"
    - Then recompile
 
 **Available Tools**:
 - `write_file`: Write test files and helper contracts
 - `read_file`: Read existing files if needed for debugging
-- `run_command`: Compile and test (whitelisted: npx hardhat compile/test/clean)
+- `hardhat`: Compile and test using hardhat command line interface (whitelisted commands: compile, test, clean)
 
 **Success Criteria**:
 - ✅ All contracts and tests compile without errors

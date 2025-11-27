@@ -256,7 +256,7 @@ class TestGenerator:
             return None
 
     def _get_filesystem_tools(self) -> List[Dict]:
-        """Get tool definitions for LLM (filesystem + command execution).
+        """Get tool definitions for LLM (filesystem & shell execution).
 
         Returns:
             List of tool definitions
@@ -295,19 +295,19 @@ class TestGenerator:
                 },
             },
             {
-                "name": "run_command",
-                "description": "Execute Hardhat commands for compilation, testing, and cache cleaning. Only whitelisted commands allowed: npx hardhat compile/test/clean.",
+                "name": "hardhat",
+                "description": "Execute Hardhat commands for compilation, testing, and cache cleaning. Only whitelisted commands allowed: compile, test, clean.",
                 "input_schema": {
                     "type": "object",
                     "properties": {
                         "command": {
                             "type": "string",
-                            "description": "Command to execute (must be 'npx')",
+                            "description": "Command to execute. Examples: 'compile', 'test', 'clean'",
                         },
                         "args": {
                             "type": "array",
                             "items": {"type": "string"},
-                            "description": "Command arguments. Examples: ['hardhat', 'compile'], ['hardhat', 'test', 'test/Contract.test.js'], ['hardhat', 'clean']",
+                            "description": "Command arguments. Example: if command is 'test', args could be ['test/Contract.test.js']",
                         },
                         "cwd": {
                             "type": "string",
@@ -318,7 +318,7 @@ class TestGenerator:
                             "description": "Timeout in seconds (default: 180, max: 240). First compilation may take longer.",
                         },
                     },
-                    "required": ["command", "args"],
+                    "required": ["command"],
                 },
             },
         ]

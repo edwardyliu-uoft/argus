@@ -51,6 +51,5 @@
   "output": {
     "directory": "argus",
     "level": "debug"
-  },
-  "workdir": "/Users/calebchin/argus/examples/test-project"
+  }
 }
