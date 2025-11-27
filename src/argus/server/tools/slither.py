@@ -8,7 +8,7 @@ enhance their code comprehension, and quickly prototype custom analyses.
 Documentation: https://crytic.github.io/slither/slither.html
 """
 
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Dict, Optional
 from pathlib import Path
 import logging
 import asyncio

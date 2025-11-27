@@ -93,12 +93,6 @@ class PluginRegistry:
 
                     # Register plugin
                     self.register_plugin(plugin_ins, group)
-                    _logger.info(
-                        "Loaded plugin: '%s' (%s) from group '%s'.",
-                        ep.name,
-                        plugin_ins.version,
-                        group,
-                    )
 
                 # pylint: disable=broad-except
                 except Exception as e:
@@ -150,7 +144,7 @@ class PluginRegistry:
             )
 
         self.__plugins[group][plugin_ins.name] = plugin_ins
-        _logger.debug("Registered plugin: '%s' in group '%s'", plugin_ins.name, group)
+        _logger.info("Registered plugin: '%s' in group '%s'", plugin_ins.name, group)
 
     def get_plugin(self, name: str, group: str) -> Optional[BasePlugin]:
         """Get a plugin by name and group.

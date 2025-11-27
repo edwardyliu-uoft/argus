@@ -8,7 +8,7 @@ detect a variety of security vulnerabilities.
 Documentation: https://mythril-classic.readthedocs.io/en/master/index.html
 """
 
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Dict, Optional
 from pathlib import Path
 import logging
 import asyncio

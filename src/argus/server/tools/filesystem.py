@@ -7,7 +7,7 @@ Provides tools for file and directory operations including:
 - Path operations (get info, check existence)
 """
 
-from typing import Callable, Dict, Any, Optional
+from typing import Dict, Any, Optional
 from pathlib import Path
 import logging
 from datetime import datetime

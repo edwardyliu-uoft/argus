@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "argus_example_plugin"
+version = "0.1.0"
+description = "A simple example plugin for Argus"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [
+    { name = "Caleb Chin", email = "cchin@cs.toronto.edu" },
+    { name = "Edward Liu", email = "edwardy.liu@mail.utoronto.ca" },
+    { name = "Jonathan Wen", email = "jon.wen@mail.utoronto.ca" },
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = ["argus>=0.1.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4.0", "pytest-asyncio>=0.23.0"]
+
+# This is the key section - it registers the plugin with Argus
+# When Argus discovers plugins, it looks for entry points in the "argus.mcp.tools" group
+[project.entry-points."argus.mcp.tools"]
+example = "argus_example_plugin:ExamplePlugin"

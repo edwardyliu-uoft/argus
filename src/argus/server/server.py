@@ -126,6 +126,7 @@ class ArgusMCPServer(Process):
 
         plugins = registry.get_plugins_by_group(group)
         for plugin_name, plugin in plugins.items():
+
             if not isinstance(
                 plugin,
                 {
@@ -147,10 +148,10 @@ class ArgusMCPServer(Process):
                     group,
                     {
                         "workdir": conf.get("workdir"),
-                        **conf.get(f"server.{what}.{plugin_name}"),
+                        **conf.get(f"server.{what}.{plugin_name}", {}),
                     },
                 )
-            _logger.debug("Loading %s from plugin: %s", what, plugin_name)
+
             components = {
                 "prompts": getattr(plugin, "prompts", {}),
                 "resources": getattr(plugin, "resources", {}),
@@ -165,7 +166,7 @@ class ArgusMCPServer(Process):
                         app.resource(uri)(component_callable)
                     elif what == "tools":
                         app.tool()(component_callable)
-                    _logger.debug("Registered %s: %s", what[:-1], component_name)
+                    _logger.debug("Loaded %s: %s", what[:-1], component_name)
                 else:
                     _logger.warning(
                         "MCP server %s '%s' from plugin '%s' is not callable, skipping.",
@@ -173,6 +174,7 @@ class ArgusMCPServer(Process):
                         component_name,
                         plugin_name,
                     )
+            _logger.info("Finished loading %s from plugin: %s", what, plugin_name)
 
     def stop(self, timeout: float = 5.0) -> None:
         """Stop the server process.
