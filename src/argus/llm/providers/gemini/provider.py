@@ -21,7 +21,7 @@ class GeminiProvider(BaseLLMProvider):
 
     def initialize_client(self):
         """Initialize Gemini client with API key from environment."""
-        api_key_env = self.config.get("llm.gemini.api_key", "GEMINI_API_KEY")
+        api_key_env = self.config.get("api_key", "GEMINI_API_KEY")
         api_key = os.environ.get(api_key_env)
 
         if not api_key:
@@ -112,7 +112,7 @@ class GeminiProvider(BaseLLMProvider):
         for _ in range(max_iterations):
             try:
                 response = self.client.models.generate_content(
-                    model=self.config.get("llm.gemini.model"),
+                    model=self.config.get("model"),
                     contents=contents,
                     config=config,
                 )
@@ -144,7 +144,7 @@ class GeminiProvider(BaseLLMProvider):
 
                             # Truncate large results to avoid token limits
                             max_length = self.config.get(
-                                "llm.gemini.max_tool_result_length", 50000
+                                "max_tool_result_length", 50000
                             )
                             if len(result) > max_length:
                                 original_length = len(result)
@@ -193,7 +193,7 @@ class GeminiProvider(BaseLLMProvider):
         # Max iterations reached
         return "Max function call iterations reached"
 
-    def call_simple(self, prompt: str) -> str:
+    async def call_simple(self, prompt: str) -> str:
         """
         Call Gemini without function calling (simple text completion).
 
@@ -209,7 +209,7 @@ class GeminiProvider(BaseLLMProvider):
             )
 
             response = self.client.models.generate_content(
-                model=self.config.get("llm.gemini.model"),
+                model=self.config.get("model"),
                 contents=prompt,
                 config=config,
             )

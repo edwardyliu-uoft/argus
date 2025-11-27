@@ -4,14 +4,14 @@ Defines the interface that all providers must implement.
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import json
 import logging
 
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
-from argus.core.config import conf
+from argus import utils
 
 _logger = logging.getLogger("argus.console")
 
@@ -19,17 +19,17 @@ _logger = logging.getLogger("argus.console")
 class BaseLLMProvider(ABC):
     """Abstract base class for LLM providers (Anthropic, Gemini, etc.)."""
 
-    def __init__(self):
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
         """
         Initialize the provider with configuration.
 
         Args:
             config: ArgusConfig instance
         """
-        self.config = conf
+        self.config = config
         self.client = None
-        self._mcp_session = None
-        self._mcp_context = None
+        self.__mcp_session = None
+        self.__mcp_context = None
 
     @abstractmethod
     def initialize_client(self):
@@ -119,8 +119,8 @@ class BaseLLMProvider(ABC):
         """
         try:
             # Initialize MCP session if not already done (lazy initialization)
-            if self._mcp_session is None:
-                await self._initialize_mcp_session()
+            if self.__mcp_session is None:
+                await self._initialize__mcp_session()
 
             # Call the tool using the persistent session
             result = await self._call_mcp_tool(tool_name, tool_args)
@@ -129,26 +129,26 @@ class BaseLLMProvider(ABC):
         except Exception as e:
             raise RuntimeError(f"Tool execution error: {e}", e) from e
 
-    async def _initialize_mcp_session(self) -> None:
+    async def _initialize__mcp_session(self) -> None:
         """
         Initialize persistent MCP client session.
         Called lazily on first tool execution.
         """
         # Get MCP server endpoint from config
-        mcp_host = self.config.get("server.host", "127.0.0.1")
-        mcp_port = self.config.get("server.port", 8000)
-        mount_path = self.config.get("server.mount_path", "/mcp")
+        mcp_host = utils.conf_get(self.config, "server.host", "127.0.0.1")
+        mcp_port = utils.conf_get(self.config, "server.port", 8000)
+        mount_path = utils.conf_get(self.config, "server.mount_path", "/mcp")
         mcp_url = f"http://{mcp_host}:{mcp_port}{mount_path}"
 
         # Create persistent connection context
-        self._mcp_context = streamablehttp_client(mcp_url)
+        self.__mcp_context = streamablehttp_client(mcp_url)
         # pylint: disable=no-member, unnecessary-dunder-call
-        read, write, _ = await self._mcp_context.__aenter__()
+        read, write, _ = await self.__mcp_context.__aenter__()
 
         # Create and initialize session
-        self._mcp_session = ClientSession(read, write)
-        await self._mcp_session.__aenter__()
-        await self._mcp_session.initialize()
+        self.__mcp_session = ClientSession(read, write)
+        await self.__mcp_session.__aenter__()
+        await self.__mcp_session.initialize()
 
     async def _call_mcp_tool(
         self,
@@ -165,11 +165,11 @@ class BaseLLMProvider(ABC):
         Returns:
             Tool result dictionary
         """
-        if self._mcp_session is None:
+        if self.__mcp_session is None:
             raise RuntimeError("MCP session not initialized")
 
         # Call the tool
-        result = await self._mcp_session.call_tool(tool_name, tool_args)
+        result = await self.__mcp_session.call_tool(tool_name, tool_args)
 
         # Extract content from result
         if hasattr(result, "content") and result.content:
@@ -183,30 +183,30 @@ class BaseLLMProvider(ABC):
         else:
             return {"content": [str(result)], "raw": str(result)}
 
-    async def cleanup_mcp_session(self) -> None:
+    async def cleanup__mcp_session(self) -> None:
         """
         Close the MCP client session and cleanup resources.
         Should be called when tool calling is complete.
         """
-        if self._mcp_session is not None:
+        if self.__mcp_session is not None:
             try:
-                await self._mcp_session.__aexit__(None, None, None)
+                await self.__mcp_session.__aexit__(None, None, None)
 
             # pylint: disable=broad-except
             except Exception as e:
                 # Log but don't fail on cleanup errors
                 _logger.warning("MCP session cleanup error: %s", e)
             finally:
-                self._mcp_session = None
+                self.__mcp_session = None
 
-        if self._mcp_context is not None:
+        if self.__mcp_context is not None:
             try:
                 # pylint: disable=no-member
-                await self._mcp_context.__aexit__(None, None, None)
+                await self.__mcp_context.__aexit__(None, None, None)
 
             # pylint: disable=broad-except
             except Exception as e:
                 # Log but don't fail on cleanup errors
                 _logger.warning("MCP context cleanup error: %s", e)
             finally:
-                self._mcp_context = None
+                self.__mcp_context = None

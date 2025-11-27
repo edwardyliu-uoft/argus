@@ -7,12 +7,18 @@ This module exposes a thread-runnable `MCPServer` class. For CLI usage the
 from typing import Optional
 from multiprocessing import Process
 import logging
-import importlib
 import time
 
 from mcp.server.fastmcp import FastMCP
 
 from argus.core import conf
+from argus.plugins import (
+    PluginRegistry,
+    MCPPromptPlugin,
+    MCPResourcePlugin,
+    MCPToolPlugin,
+    get_plugin_registry,
+)
 
 
 _logger = logging.getLogger("argus.console")
@@ -76,9 +82,9 @@ class ArgusMCPServer(Process):
                 port=self.port,
                 mount_path=self.mount_path,
             )
-            self.register_prompts(self.app)
-            self.register_resources(self.app)
-            self.register_tools(self.app)
+            self.register(self.app, "prompts")
+            self.register(self.app, "resources")
+            self.register(self.app, "tools")
             self.app.run(transport="streamable-http")
 
         # pylint: disable=broad-except
@@ -86,73 +92,89 @@ class ArgusMCPServer(Process):
             _logger.error("Server error: %s", e)
             raise
 
-    def register_prompts(self, app: FastMCP) -> None:
-        """Register MCP prompts with the server."""
+    def __register_mcp_plugins(self, group: str) -> PluginRegistry:
+        """Register built-in MCP server plugins.
+        Called lazily when MCP server is started.
+
+        Args:
+            group: Plugin group to discover and register ('argus.mcp.tools', etc.)
+
+        Returns:
+            The PluginRegistry instance
+        """
+
+        registry = get_plugin_registry()
+        if not registry.initialized(group):
+            _logger.debug("Registering MCP plugins for group: '%s'", group)
+            registry.discover_plugins(group)
+
+        return registry
+
+    def register(self, app: FastMCP, what: str) -> None:
+        """Register MCP components with the server.
+
+        Args:
+            app: FastMCP server instance
+            what: Component type to register ('prompts', 'resources', 'tools')
+        """
         if app is None:
             raise RuntimeError("Argus MCP Server is not initialized.")
 
-        # Register prompts from conf
-        for promptname in conf.get("server.prompts", {}).keys():
-            promptmodule = importlib.import_module(f"argus.server.prompts.{promptname}")
-            for funcname in conf.get(
-                f"server.prompts.{promptname}.functions",
-                [promptname],
+        # Ensure components are registered
+        group = f"argus.mcp.{what}"
+        registry = self.__register_mcp_plugins(group)
+
+        plugins = registry.get_plugins_by_group(group)
+        for plugin_name, plugin in plugins.items():
+
+            if not isinstance(
+                plugin,
+                {
+                    "prompts": MCPPromptPlugin,
+                    "resources": MCPResourcePlugin,
+                    "tools": MCPToolPlugin,
+                }[what],
             ):
-                promptfunc = getattr(promptmodule, funcname, None)
-                if callable(promptfunc):
-                    app.prompt()(promptfunc)
+                _logger.warning(
+                    "MCP %s plugin '%s' is not of a valid type, skipping.",
+                    what,
+                    plugin_name,
+                )
+                continue
+
+            if not plugin.initialized:
+                registry.initialize_plugin(
+                    plugin_name,
+                    group,
+                    {
+                        "workdir": conf.get("workdir"),
+                        **conf.get(f"server.{what}.{plugin_name}", {}),
+                    },
+                )
+
+            components = {
+                "prompts": getattr(plugin, "prompts", {}),
+                "resources": getattr(plugin, "resources", {}),
+                "tools": getattr(plugin, "tools", {}),
+            }[what]
+            for component_name, component_callable in components.items():
+                if callable(component_callable):
+                    if what == "prompts":
+                        app.prompt()(component_callable)
+                    elif what == "resources":
+                        uri = f"resource:///{plugin_name}/{component_name}"
+                        app.resource(uri)(component_callable)
+                    elif what == "tools":
+                        app.tool()(component_callable)
+                    _logger.debug("Loaded %s: %s", what[:-1], component_name)
                 else:
                     _logger.warning(
-                        "MCP server prompt '%s'.'%s' not found in argus.server.prompts",
-                        promptname,
-                        funcname,
+                        "MCP server %s '%s' from plugin '%s' is not callable, skipping.",
+                        what[:-1],
+                        component_name,
+                        plugin_name,
                     )
-
-    def register_resources(self, app: FastMCP) -> None:
-        """Register MCP resources with the server."""
-        if app is None:
-            raise RuntimeError("Argus MCP Server is not initialized.")
-
-        # Register resources from conf
-        for resname in conf.get("server.resources", {}).keys():
-            resmodule = importlib.import_module(f"argus.server.resources.{resname}")
-            for funcname in conf.get(
-                f"server.resources.{resname}.functions",
-                [resname],
-            ):
-                resfunc = getattr(resmodule, funcname, None)
-                if callable(resfunc):
-                    # Generate URI from function name
-                    uri = f"resource:///{resname}/{funcname}"
-                    app.resource(uri)(resfunc)
-                else:
-                    _logger.warning(
-                        "MCP server resource '%s'.'%s' not found in argus.server.resources",
-                        resname,
-                        funcname,
-                    )
-
-    def register_tools(self, app: FastMCP) -> None:
-        """Register MCP tools with the server."""
-        if app is None:
-            raise RuntimeError("Argus MCP Server is not initialized.")
-
-        # Register tools from conf
-        for toolname in conf.get("server.tools", {}).keys():
-            toolmodule = importlib.import_module(f"argus.server.tools.{toolname}")
-            for funcname in conf.get(
-                f"server.tools.{toolname}.functions",
-                [toolname],
-            ):
-                toolfunc = getattr(toolmodule, funcname, None)
-                if callable(toolfunc):
-                    app.tool()(toolfunc)
-                else:
-                    _logger.warning(
-                        "MCP server tool '%s'.'%s' not found in argus.server.tools",
-                        toolname,
-                        funcname,
-                    )
+            _logger.info("Finished loading %s from plugin: %s", what, plugin_name)
 
     def stop(self, timeout: float = 5.0) -> None:
         """Stop the server process.

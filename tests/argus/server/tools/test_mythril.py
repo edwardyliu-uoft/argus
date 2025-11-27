@@ -1,65 +1,62 @@
 """Tests for Mythril tool controller."""
 
-from unittest.mock import patch
 import pytest
 
 from argus.core import docker as argus_docker
-from argus.server import tools
+from argus.server.tools import MythrilToolPlugin
 
 
 @pytest.mark.skipif(not argus_docker.docker_available(), reason="Docker not available")
 class TestMythrilIntegration:
     """Integration tests that run actual Mythril container."""
 
+    @pytest.fixture(scope="class")
+    def mythril(self):
+        """Mythril tool plugin instance."""
+        return MythrilToolPlugin()
+
     @pytest.mark.asyncio
-    @patch("argus.server.tools.mythril.conf")
-    async def test_mythril_help_command(self, mock_conf, tmp_path):
+    async def test_mythril_help_command(self, tmp_path, mythril):
         """Test running mythril with --help command."""
         project_root = tmp_path / "project"
         project_root.mkdir()
-        mock_conf.get.side_effect = lambda key, default=None: {
-            "workdir": str(project_root),
-            "server.tools.mythril": {
+        mythril.initialize(
+            {
+                "workdir": str(project_root),
                 "timeout": 60,
                 "docker": {
                     "image": "mythril/myth:latest",
                     "network_mode": "none",
                     "remove_containers": True,
                 },
-            },
-        }.get(key, default)
-
-        result = await tools.mythril.mythril(command="myth", args=["--help"])
-
-        assert result["exit_code"] == 0
-        assert result["container_exit_code"] == 0
+            }
+        )
+        res = await mythril.mythril(command="myth", args=["--help"])
+        assert res["exit_code"] == 0
+        assert res["container_exit_code"] == 0
 
     @pytest.mark.asyncio
-    @patch("argus.server.tools.mythril.conf")
-    async def test_mythril_version_command(self, mock_conf, tmp_path):
+    async def test_mythril_version_command(self, tmp_path, mythril):
         """Test running mythril with --version command."""
         project_root = tmp_path / "project"
         project_root.mkdir()
-        mock_conf.get.side_effect = lambda key, default=None: {
-            "workdir": str(project_root),
-            "server.tools.mythril": {
+        mythril.initialize(
+            {
+                "workdir": str(project_root),
                 "timeout": 60,
                 "docker": {
                     "image": "mythril/myth:latest",
                     "network_mode": "none",
                     "remove_containers": True,
                 },
-            },
-        }.get(key, default)
-
-        result = await tools.mythril.mythril(command="myth", args=["version"])
-
-        assert result["exit_code"] == 0
-        assert result["container_exit_code"] == 0
+            }
+        )
+        res = await mythril.mythril(command="myth", args=["version"])
+        assert res["exit_code"] == 0
+        assert res["container_exit_code"] == 0
 
     @pytest.mark.asyncio
-    @patch("argus.server.tools.mythril.conf")
-    async def test_mythril_analyze_simple_contract(self, mock_conf, tmp_path):
+    async def test_mythril_analyze_simple_contract(self, tmp_path, mythril):
         """Test running mythril analysis on a simple Solidity contract."""
         project_root = tmp_path / "project"
         project_root.mkdir()
@@ -84,19 +81,18 @@ contract SimpleStorage {
 }
 """
         )
-        mock_conf.get.side_effect = lambda key, default=None: {
-            "workdir": str(project_root),
-            "server.tools.mythril": {
+        mythril.initialize(
+            {
+                "workdir": str(project_root),
                 "timeout": 120,
                 "docker": {
                     "image": "mythril/myth:latest",
                     "network_mode": "bridge",
                     "remove_containers": True,
                 },
-            },
-        }.get(key, default)
-
-        result = await tools.mythril.mythril(
+            }
+        )
+        res = await mythril.mythril(
             command="myth",
             args=[
                 "analyze",
@@ -106,15 +102,14 @@ contract SimpleStorage {
             ],
         )
 
-        assert result["exit_code"] == 0
-        assert result["container_exit_code"] == 0
+        assert res["exit_code"] == 0
+        assert res["container_exit_code"] == 0
 
     @pytest.mark.asyncio
-    @patch("argus.server.tools.mythril.conf")
     async def test_mythril_analyze_contract_with_vulnerability(
         self,
-        mock_conf,
         tmp_path,
+        mythril,
     ):
         """Test running mythril on a contract with a known vulnerability."""
         project_root = tmp_path / "project"
@@ -146,19 +141,19 @@ contract Vulnerable {
 }
 """
         )
-        mock_conf.get.side_effect = lambda key, default=None: {
-            "workdir": str(project_root),
-            "server.tools.mythril": {
+        mythril.initialize(
+            {
+                "workdir": str(project_root),
                 "timeout": 300,
                 "docker": {
                     "image": "mythril/myth:latest",
                     "network_mode": "bridge",
                     "remove_containers": True,
                 },
-            },
-        }.get(key, default)
+            }
+        )
 
-        result = await tools.mythril.mythril(
+        res = await mythril.mythril(
             command="myth",
             args=[
                 "analyze",
@@ -170,12 +165,11 @@ contract Vulnerable {
             ],
         )
 
-        assert result["exit_code"] == 0
-        assert result["container_exit_code"] != 0
+        assert res["exit_code"] == 0
+        assert res["container_exit_code"] != 0
 
     @pytest.mark.asyncio
-    @patch("argus.server.tools.mythril.conf")
-    async def test_mythril_analyze_with_json_output(self, mock_conf, tmp_path):
+    async def test_mythril_analyze_with_json_output(self, tmp_path, mythril):
         """Test running mythril with JSON output format."""
         project_root = tmp_path / "project"
         project_root.mkdir()
@@ -197,19 +191,19 @@ contract Token {
 }
 """
         )
-        mock_conf.get.side_effect = lambda key, default=None: {
-            "workdir": str(project_root),
-            "server.tools.mythril": {
+        mythril.initialize(
+            {
+                "workdir": str(project_root),
                 "timeout": 120,
                 "docker": {
                     "image": "mythril/myth:latest",
                     "network_mode": "bridge",
                     "remove_containers": True,
                 },
-            },
-        }.get(key, default)
+            }
+        )
 
-        result = await tools.mythril.mythril(
+        res = await mythril.mythril(
             command="myth",
             args=[
                 "analyze",
@@ -221,12 +215,11 @@ contract Token {
             ],
         )
 
-        assert result["exit_code"] == 0
-        assert result["container_exit_code"] == 0
+        assert res["exit_code"] == 0
+        assert res["container_exit_code"] == 0
 
     @pytest.mark.asyncio
-    @patch("argus.server.tools.mythril.conf")
-    async def test_mythril_analyze_with_execution_timeout(self, mock_conf, tmp_path):
+    async def test_mythril_analyze_with_execution_timeout(self, tmp_path, mythril):
         """Test running mythril with execution timeout argument."""
         project_root = tmp_path / "project"
         project_root.mkdir()
@@ -246,19 +239,19 @@ contract Simple {
 }
 """
         )
-        mock_conf.get.side_effect = lambda key, default=None: {
-            "workdir": str(project_root),
-            "server.tools.mythril": {
+        mythril.initialize(
+            {
+                "workdir": str(project_root),
                 "timeout": 120,
                 "docker": {
                     "image": "mythril/myth:latest",
                     "network_mode": "bridge",
                     "remove_containers": True,
                 },
-            },
-        }.get(key, default)
+            }
+        )
 
-        result = await tools.mythril.mythril(
+        res = await mythril.mythril(
             command="myth",
             args=[
                 "analyze",
@@ -270,12 +263,11 @@ contract Simple {
             ],
         )
 
-        assert result["exit_code"] == 0
-        assert result["container_exit_code"] == 0
+        assert res["exit_code"] == 0
+        assert res["container_exit_code"] == 0
 
     @pytest.mark.asyncio
-    @patch("argus.server.tools.mythril.conf")
-    async def test_mythril_with_invalid_contract(self, mock_conf, tmp_path):
+    async def test_mythril_with_invalid_contract(self, tmp_path, mythril):
         """Test running mythril on invalid Solidity code."""
         project_root = tmp_path / "project"
         project_root.mkdir()
@@ -294,19 +286,19 @@ contract Invalid {
 }
 """
         )
-        mock_conf.get.side_effect = lambda key, default=None: {
-            "workdir": str(project_root),
-            "server.tools.mythril": {
+        mythril.initialize(
+            {
+                "workdir": str(project_root),
                 "timeout": 60,
                 "docker": {
                     "image": "mythril/myth:latest",
                     "network_mode": "bridge",
                     "remove_containers": True,
                 },
-            },
-        }.get(key, default)
+            }
+        )
 
-        result = await tools.mythril.mythril(
+        res = await mythril.mythril(
             command="myth",
             args=[
                 "analyze",
@@ -316,30 +308,29 @@ contract Invalid {
             ],
         )
 
-        assert result["exit_code"] == 0
-        assert result["container_exit_code"] == 0
-        assert "ParserError" in result["stdout"]["error"]
+        assert res["exit_code"] == 0
+        assert res["container_exit_code"] == 0
+        assert "ParserError" in res["stdout"]["error"]
 
     @pytest.mark.asyncio
-    @patch("argus.server.tools.mythril.conf")
-    async def test_mythril_with_nonexistent_file(self, mock_conf, tmp_path):
+    async def test_mythril_with_nonexistent_file(self, tmp_path, mythril):
         """Test running mythril on a file that doesn't exist."""
         project_root = tmp_path / "project"
         project_root.mkdir()
 
-        mock_conf.get.side_effect = lambda key, default=None: {
-            "workdir": str(project_root),
-            "server.tools.mythril": {
+        mythril.initialize(
+            {
+                "workdir": str(project_root),
                 "timeout": 60,
                 "docker": {
                     "image": "mythril/myth:latest",
                     "network_mode": "none",
                     "remove_containers": True,
                 },
-            },
-        }.get(key, default)
+            }
+        )
 
-        result = await tools.mythril.mythril(
+        res = await mythril.mythril(
             command="myth",
             args=[
                 "analyze",
@@ -347,16 +338,15 @@ contract Invalid {
             ],
         )
 
-        assert result["exit_code"] == 0
-        assert result["container_exit_code"] == 0
-        assert "FileNotFoundError" in result["stdout"]["error"]
+        assert res["exit_code"] == 0
+        assert res["container_exit_code"] == 0
+        assert "FileNotFoundError" in res["stdout"]["error"]
 
     @pytest.mark.asyncio
-    @patch("argus.server.tools.mythril.conf")
     async def test_mythril_with_multiple_contracts_in_project(
         self,
-        mock_conf,
         tmp_path,
+        mythril,
     ):
         """Test running mythril in a project with multiple contract files."""
         project_root = tmp_path / "project"
@@ -394,19 +384,19 @@ contract ContractB {
 }
 """
         )
-        mock_conf.get.side_effect = lambda key, default=None: {
-            "workdir": str(project_root),
-            "server.tools.mythril": {
+        mythril.initialize(
+            {
+                "workdir": str(project_root),
                 "timeout": 120,
                 "docker": {
                     "image": "mythril/myth:latest",
                     "network_mode": "bridge",
                     "remove_containers": True,
                 },
-            },
-        }.get(key, default)
+            }
+        )
 
-        result = await tools.mythril.mythril(
+        res = await mythril.mythril(
             command="myth",
             args=[
                 "analyze",
@@ -416,12 +406,11 @@ contract ContractB {
             ],
         )
 
-        assert result["exit_code"] == 0
-        assert result["container_exit_code"] == 0
+        assert res["exit_code"] == 0
+        assert res["container_exit_code"] == 0
 
     @pytest.mark.asyncio
-    @patch("argus.server.tools.mythril.conf")
-    async def test_mythril_with_subdirectory_contract(self, mock_conf, tmp_path):
+    async def test_mythril_with_subdirectory_contract(self, tmp_path, mythril):
         """Test running mythril on a contract in a subdirectory."""
         project_root = tmp_path / "project"
         project_root.mkdir()
@@ -449,19 +438,19 @@ contract Storage {
 }
 """
         )
-        mock_conf.get.side_effect = lambda key, default=None: {
-            "workdir": str(project_root),
-            "server.tools.mythril": {
+        mythril.initialize(
+            {
+                "workdir": str(project_root),
                 "timeout": 120,
                 "docker": {
                     "image": "mythril/myth:latest",
                     "network_mode": "bridge",
                     "remove_containers": True,
                 },
-            },
-        }.get(key, default)
+            }
+        )
 
-        result = await tools.mythril.mythril(
+        res = await mythril.mythril(
             command="myth",
             args=[
                 "analyze",
@@ -471,5 +460,5 @@ contract Storage {
             ],
         )
 
-        assert result["exit_code"] == 0
-        assert result["container_exit_code"] == 0
+        assert res["exit_code"] == 0
+        assert res["container_exit_code"] == 0

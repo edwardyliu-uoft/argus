@@ -171,9 +171,20 @@ Return ONLY valid JSON, no additional text.
 
 
 def project_semantic_analysis_prompt(
-    readme: str, all_docs: str, contracts: list
+    readme: str, all_docs: str, contracts: dict
 ) -> str:
-    """Generate prompt for project-level semantic analysis."""
+    """Generate prompt for project-level semantic analysis.
+
+    Args:
+        readme: README.md content
+        all_docs: Additional documentation
+        contracts: Dict mapping contract names to their source code
+    """
+    # Format contracts for the prompt
+    contracts_text = "\n\n".join(
+        [f"**{name}**:\n```solidity\n{code}\n```" for name, code in contracts.items()]
+    )
+
     return f"""
 Analyze the entire smart contract project for alignment with high-level design.
 
@@ -183,7 +194,8 @@ Analyze the entire smart contract project for alignment with high-level design.
 **Additional Documentation**:
 {all_docs}
 
-**Contracts To Analyzed**: {", ".join(contracts)}
+**Contracts**:
+{contracts_text}
 
 **Analysis Requirements**:
 1. Check if overall architecture matches README description
@@ -649,30 +661,74 @@ Return ONLY valid JSON, no additional text.
 
 
 def report_generation_prompt(
-    analysis_md: str, endpoints_md: str, test_results: dict
+    timestamp: str,
+    duration: float,
+    file_semantic_findings: dict,
+    project_semantic_findings: list,
+    cross_contract_findings: list,
+    static_analysis_results: dict,
+    endpoints: dict,
+    test_results: dict,
+    contracts: list,
 ) -> str:
-    """Generate prompt for final report creation."""
+    """Generate prompt for final comprehensive report creation.
+
+    Args:
+        timestamp: Analysis start timestamp
+        duration: Analysis duration in seconds
+        file_semantic_findings: Phase 2 file-level semantic findings
+        project_semantic_findings: Phase 3 project-level semantic findings
+        cross_contract_findings: Phase 3 cross-contract findings
+        static_analysis_results: Phase 4 static analysis results
+        endpoints: Phase 5 extracted endpoints
+        test_results: Phase 6 test execution results
+        contracts: List of analyzed contracts
+    """
     return f"""
-Generate a comprehensive security analysis report.
+Generate a comprehensive security analysis report based on the multi-phase analysis results.
 
-**Input Data**:
+**Analysis Metadata**:
+- **Timestamp**: {timestamp}
+- **Duration**: {duration:.1f} seconds
+- **Contracts Analyzed**: {', '.join([c.name for c in contracts])}
 
-1. **Analysis Findings**:
-{analysis_md}
+**Phase 2 - File-Level Semantic Findings**:
+```json
+{json.dumps(file_semantic_findings, indent=2)}
+```
 
-2. **Extracted Endpoints**:
-{endpoints_md}
+**Phase 3 - Project-Level Semantic Findings**:
+```json
+{json.dumps(project_semantic_findings, indent=2)}
+```
 
-3. **Test Results**:
+**Phase 3 - Cross-Contract Findings**:
+```json
+{json.dumps(cross_contract_findings, indent=2)}
+```
+
+**Phase 4 - Static Analysis Results**:
+```json
+{json.dumps(static_analysis_results, indent=2)}
+```
+
+**Phase 5 - Extracted Endpoints**:
+```json
+{json.dumps(endpoints, indent=2)}
+```
+
+**Phase 6 - Test Results**:
 ```json
 {json.dumps(test_results, indent=2)}
 ```
 
-**Report Structure**:
+---
+
+**Your Task**: Generate a comprehensive markdown report following this structure:
 
 # Argus Security Analysis Report
-**Generated**: [timestamp]
-**Analysis Duration**: [duration]
+**Generated**: {timestamp}
+**Analysis Duration**: {duration:.1f}s
 
 ---
 
@@ -702,12 +758,12 @@ Generate a comprehensive security analysis report.
 - **Confidence**: X/10
 - **Location**: File.sol - function() (line X)
 - **Description**: [Detailed explanation]
-- **Source**: Semantic Analysis
+- **Source**: Semantic Analysis (File-level / Project-level / Cross-contract)
 - **Also Detected By**: [If multiple tools found it]
-- **Test Generated**: test_name [✓ CONFIRMED | ✗ NOT CONFIRMED]
+- **Test Generated**: test_name [✓ CONFIRMED | ✗ NOT CONFIRMED | ⊘ NOT TESTED]
 - **Remediation**:
   ```solidity
-  // Suggested fix with code only if confident in solution
+  // Suggested fix with code
   ```
 - **References**: [Links if available]
 
@@ -737,16 +793,20 @@ Generate a comprehensive security analysis report.
 
 ---
 
-## Appendix: Raw Analysis Data
+## Appendix: Contract Endpoints
 
-[Include full argus-analysis.md content]
+[List all extracted endpoints by contract]
 
 ---
 
-**Important**:
-- DO NOT deduplicate findings. If same vulnerability found by multiple tools, include all assessments
+**CRITICAL REQUIREMENTS**:
+- **DO NOT deduplicate findings** - If the same vulnerability was found by multiple tools, include ALL assessments separately
 - Use markdown tables for structured data
 - Include severity emojis: 🔴 Critical, 🟠 High, 🟡 Medium, 🟢 Low
 - Add code snippets for remediation where possible
 - Make findings actionable with clear next steps
+- Cross-reference findings with test results where applicable
+- Focus on actionable insights, not raw data dumps
+
+**Output**: Return the complete markdown report as a single string.
 """
