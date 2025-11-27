@@ -120,24 +120,22 @@ class ArgusOrchestrator:
             # Phase 6: Test Generation & Execution
             await self.phase6_test_generation()
 
-            # TODO: Uncomment when ready to test remaining phases
-            # # Phase 7: Report Generation
-            # await self.phase7_report_generation()
+            # Phase 7: Report Generation
+            await self.phase7_report_generation()
 
             # Summary
             duration = (datetime.now() - self.state.start_time).total_seconds()
             _logger.info("=" * 80)
             _logger.info("Analysis complete in %.1fs", duration)
-            # _logger.info(f"Report: {self.state.report_path}")
+            _logger.info("Report: %s", self.state.report_path)
             _logger.info("=" * 80)
 
             return {
                 "success": True,
                 "duration": duration,
-                # "report_path": str(self.state.report_path),
+                "report_path": str(self.state.report_path),
                 "contracts_analyzed": len(self.state.contracts),
-                # "vulnerabilities_found": self._count_vulnerabilities(),
-                # "tests_generated": len(self.state.generated_tests),
+                "tests_generated": len(self.state.generated_tests),
                 "errors": self.state.errors,
             }
 
@@ -396,11 +394,15 @@ class ArgusOrchestrator:
                 or "No additional documentation found"
             )
 
-            contract_names = [c.name for c in self.state.contracts]
+            # Read contract code for project-level analysis
+            contracts_data = {}
+            for contract in self.state.contracts:
+                code = utils.read_file(str(contract))
+                contracts_data[contract.name] = code
 
             # Generate project-level analysis prompt
             prompt = prompts.project_semantic_analysis_prompt(
-                readme=readme, all_docs=other_docs, contracts=contract_names
+                readme=readme, all_docs=other_docs, contracts=contracts_data
             )
 
             # Log the prompt being sent (for debugging)
@@ -803,6 +805,9 @@ class ArgusOrchestrator:
             return
 
         try:
+            # Ensure Hardhat is installed before test generation begins
+            # This prevents npx prompts during the iterative test generation process
+            await self._ensure_hardhat_installed()
             # Import generator
             from argus.core.generator import TestGenerator
 
@@ -841,8 +846,141 @@ class ArgusOrchestrator:
             raise
 
     # =========================================================================
+    # PHASE 7: REPORT GENERATION
+    # =========================================================================
+
+    async def phase7_report_generation(self) -> None:
+        """Phase 7: Report Generation.
+
+        Generates a comprehensive final report consolidating all analysis phases.
+        """
+        _logger.info("=" * 80)
+        _logger.info("PHASE 7: REPORT GENERATION")
+        _logger.info("=" * 80)
+
+        self.state.current_phase = "report_generation"
+
+        try:
+            # Calculate analysis duration
+            duration = (datetime.now() - self.state.start_time).total_seconds()
+            timestamp = self.state.start_time.strftime("%Y-%m-%d %H:%M:%S")
+
+            # Save raw analysis data to JSON file for reference
+            import json
+            raw_data = {
+                "timestamp": timestamp,
+                "duration": duration,
+                "contracts": [str(c.relative_to(self.project_path)) for c in self.state.contracts],
+                "file_semantic_findings": self.state.file_semantic_findings,
+                "project_semantic_findings": self.state.project_semantic_findings,
+                "cross_contract_findings": self.state.cross_contract_findings,
+                "static_analysis_results": self.state.static_analysis_results,
+                "endpoints": self.state.endpoints,
+                "test_results": self.state.test_results,
+            }
+            raw_data_path = self.output_dir / "raw-analysis-data.json"
+            utils.write_file(str(raw_data_path), json.dumps(raw_data, indent=2))
+            _logger.info("Saved raw analysis data to %s", raw_data_path.name)
+
+            # Build comprehensive prompt with all phase results
+            prompt = prompts.report_generation_prompt(
+                timestamp=timestamp,
+                duration=duration,
+                file_semantic_findings=self.state.file_semantic_findings,
+                project_semantic_findings=self.state.project_semantic_findings,
+                cross_contract_findings=self.state.cross_contract_findings,
+                static_analysis_results=self.state.static_analysis_results,
+                endpoints=self.state.endpoints,
+                test_results=self.state.test_results,
+                contracts=self.state.contracts,
+            )
+
+            _logger.info("Generating comprehensive final report...")
+
+            # Call LLM to generate the report
+            report_content = await self.llm.call_simple(prompt)
+
+            # Log the raw LLM response for debugging
+            _logger.debug("=" * 80)
+            _logger.debug("LLM RESPONSE (Phase 7 - Report Generation):")
+            _logger.debug("=" * 80)
+            _logger.debug(report_content[:1000] + "..." if len(report_content) > 1000 else report_content)
+            _logger.debug("=" * 80)
+
+            # Write report to file
+            report_filename = "argus-security-report.md"
+            report_path = self.output_dir / report_filename
+            utils.write_file(str(report_path), report_content)
+
+            # Update state
+            self.state.report_path = report_path
+
+            _logger.info("Phase 7 complete: Report generated at %s", report_path)
+
+        except Exception as e:
+            _logger.error("Phase 7 failed: %s", e, exc_info=True)
+            self.state.errors.append(f"Phase 7: {str(e)}")
+            raise
+
+    # =========================================================================
     # HELPER METHODS
     # =========================================================================
+
+    async def _ensure_hardhat_installed(self) -> None:
+        """Ensure Hardhat dependencies are installed to prevent interactive prompts.
+
+        Runs `npm install` to install dependencies from package.json if node_modules
+        doesn't exist or is incomplete. This is called once at the start of Phase 6
+        (test generation) to ensure Hardhat is available for compile/test cycles.
+        """
+        try:
+            _logger.info("Checking Hardhat installation...")
+
+            # Check if package.json exists
+            package_json = self.project_path / "package.json"
+            if not package_json.exists():
+                _logger.warning("No package.json found - Hardhat may not be configured")
+                return
+
+            # Check if node_modules exists and has hardhat
+            node_modules = self.project_path / "node_modules"
+            hardhat_installed = (node_modules / "hardhat").exists()
+
+            if hardhat_installed:
+                _logger.info("✓ Hardhat is already installed")
+                return
+
+            # Install dependencies
+            _logger.info("Installing Hardhat dependencies (this may take a minute)...")
+            process = await asyncio.create_subprocess_exec(
+                "npm",
+                "install",
+                cwd=str(self.project_path),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+
+            _, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=180  # 3 minutes for npm install
+            )
+
+            if process.returncode == 0:
+                _logger.info("✓ Hardhat dependencies installed successfully")
+            else:
+                _logger.warning("npm install returned non-zero exit code: %d", process.returncode)
+                stderr_str = stderr.decode("utf-8", errors="replace")
+                if stderr_str:
+                    _logger.debug("STDERR: %s", stderr_str[:500])
+                # Log but don't fail - LLM might still be able to work with it
+
+        except asyncio.TimeoutError:
+            _logger.warning("npm install timed out - dependencies may be incomplete")
+        except FileNotFoundError:
+            _logger.warning("npm not found - Node.js may not be installed")
+        except Exception as e:
+            _logger.warning("Failed to install Hardhat dependencies: %s", e)
+            # Don't raise - this is just a setup step
 
     def _process_static_analysis_results(
         self,

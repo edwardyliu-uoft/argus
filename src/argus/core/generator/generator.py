@@ -71,6 +71,8 @@ class TestGenerator:
             "tests_executed": 0,
             "tests_passed": 0,
             "tests_failed": 0,
+            "compilation_succeeded": 0,
+            "compilation_failed": 0,
             "results": [],
         }
 
@@ -183,9 +185,17 @@ class TestGenerator:
             # Extract contract name without .sol extension
             base_name = contract_name.replace(".sol", "")
 
-            # Expected test file path
-            test_filename = f"{base_name}.test.js"
-            test_path = self.output_dir / "tests" / test_filename
+            # Create test directory in PROJECT (not output dir) so Hardhat can find tests
+            test_dir = self.project_path / "test"
+            test_dir.mkdir(parents=True, exist_ok=True)
+
+            # Create helper contracts directory in PROJECT (not output dir)
+            helper_dir = self.project_path / "contracts" / "test-helpers"
+            helper_dir.mkdir(parents=True, exist_ok=True)
+
+            # Expected test file path in project directory with Argus prefix
+            test_filename = f"Argus.{base_name}.test.js"
+            test_path = test_dir / test_filename
 
             # Build comprehensive context prompt
             prompt = gen_prompts.test_generation_prompt(
@@ -195,16 +205,17 @@ class TestGenerator:
                 contract_findings=contract_findings,
                 project_semantic_findings=self.project_semantic_findings,
                 output_path=test_path,
+                project_root=self.project_path,
             )
 
             _logger.debug("Generating tests for %s using LLM with tool access...", contract_name)
 
-            # Call LLM with tool access to write files
-            # The LLM will use filesystem tools to write the test file
+            # Call LLM with tool access to write, compile, and test files
+            # The LLM will iteratively fix compilation and runtime errors
             response = await self.llm.call_with_tools(
                 prompt=prompt,
                 tools=self._get_filesystem_tools(),
-                max_iterations=10,  # Allow LLM to write and potentially revise
+                max_iterations=15,  # Increased to allow for compile-fix-test cycles
             )
 
             _logger.info("=" * 80)
@@ -215,10 +226,11 @@ class TestGenerator:
 
             # Check if LLM created the test file
             if test_path.exists():
-                _logger.info("Generated test file: %s", test_path)
+                _logger.info("✓ Generated test file: %s", test_path)
+                _logger.info("  LLM completed test generation successfully")
                 return test_path
             else:
-                _logger.warning("LLM did not create expected test file: %s", test_path)
+                _logger.warning("✗ LLM did not create expected test file: %s", test_path)
                 return None
 
         except Exception as e:
@@ -226,7 +238,7 @@ class TestGenerator:
             return None
 
     def _get_filesystem_tools(self) -> List[Dict]:
-        """Get filesystem tool definitions for LLM.
+        """Get tool definitions for LLM (filesystem + command execution).
 
         Returns:
             List of tool definitions
@@ -249,7 +261,48 @@ class TestGenerator:
                     },
                     "required": ["file_path", "content"],
                 },
-            }
+            },
+            {
+                "name": "read_file",
+                "description": "Read contents of a file for inspection or error analysis.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "file_path": {
+                            "type": "string",
+                            "description": "Path to the file to read",
+                        },
+                    },
+                    "required": ["file_path"],
+                },
+            },
+            {
+                "name": "run_command",
+                "description": "Execute Hardhat commands for compilation, testing, and cache cleaning. Only whitelisted commands allowed: npx hardhat compile/test/clean.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "command": {
+                            "type": "string",
+                            "description": "Command to execute (must be 'npx')",
+                        },
+                        "args": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Command arguments. Examples: ['hardhat', 'compile'], ['hardhat', 'test', 'test/Contract.test.js'], ['hardhat', 'clean']",
+                        },
+                        "cwd": {
+                            "type": "string",
+                            "description": "Working directory (optional, defaults to project root)",
+                        },
+                        "timeout": {
+                            "type": "integer",
+                            "description": "Timeout in seconds (default: 180, max: 240). First compilation may take longer.",
+                        },
+                    },
+                    "required": ["command", "args"],
+                },
+            },
         ]
 
     async def _execute_tests(self, test_path: Path) -> Dict[str, Any]:
