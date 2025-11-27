@@ -41,31 +41,6 @@
           "network_mode": "bridge",
           "remove_containers": true
         }
-      },
-      "filesystem": {
-        "functions": [
-          "list_directory",
-          "find_files_by_extension",
-          "read_file_info",
-          "read_file",
-          "write_file",
-          "append_file",
-          "create_directory"
-        ]
-      },
-      "command": {
-        "functions": [
-          "run_command"
-        ]
-      }
-    },
-    "resources": {
-      "filesystem": {
-        "functions": [
-          "get_workspace",
-          "get_project_structure",
-          "get_solidity_files"
-        ]
       }
     }
   },
