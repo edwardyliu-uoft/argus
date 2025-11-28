@@ -209,3 +209,8 @@ __marimo__/
 
 node_modules/
 examples/*/argus/*
+
+examples/itoken
+artifacts/
+cache/
+Argus.*.js

@@ -603,7 +603,8 @@ class ArgusOrchestrator:
             _logger.info("=" * 80)
 
             # Parse the LLM's final response
-            # Expected structure: {"tool_executions": [...], "findings": [...], "summary": "..."}
+            # Expected structure: {"vulnerabilities": [...], "summary": "..."}
+            # (Also accepts: {"findings": [...], "summary": "..."} or {"tool_executions": [...], "findings": [...], "summary": "..."})
             try:
                 analysis_results = utils.parse_json_llm(response)
                 _logger.info("Successfully parsed LLM response as JSON")
@@ -623,18 +624,26 @@ class ArgusOrchestrator:
 
             # Log what the LLM decided and executed
             _logger.info("LLM completed static analysis")
-            tool_executions = analysis_results.get("tool_executions", [])
-            _logger.info("Tool executions: %d", len(tool_executions))
 
-            # Log details of each tool execution
-            for i, execution in enumerate(tool_executions, 1):
-                _logger.info(
-                    "\t%d. Tool: %s, Contract: %s, Findings: %d",
-                    i,
-                    execution.get("tool", "unknown"),
-                    execution.get("contract", "unknown"),
-                    len(execution.get("findings", [])),
-                )
+            # Log based on response format
+            tool_executions = analysis_results.get("tool_executions", [])
+            vulnerabilities = analysis_results.get("vulnerabilities", [])
+            findings = analysis_results.get("findings", [])
+
+            if tool_executions:
+                _logger.info("Tool executions: %d", len(tool_executions))
+                for i, execution in enumerate(tool_executions, 1):
+                    _logger.info(
+                        "\t%d. Tool: %s, Contract: %s, Findings: %d",
+                        i,
+                        execution.get("tool", "unknown"),
+                        execution.get("contract", "unknown"),
+                        len(execution.get("findings", [])),
+                    )
+            elif vulnerabilities:
+                _logger.info("Vulnerabilities found: %d", len(vulnerabilities))
+            elif findings:
+                _logger.info("Findings: %d", len(findings))
 
             total_findings = sum(
                 len(results.get("findings", []))
@@ -997,29 +1006,28 @@ class ArgusOrchestrator:
     ) -> None:
         """Process LLM tool execution results and populate state.
 
-        Expected analysis_results structure from LLM:
+        Accepts multiple response formats:
+
+        Format 1 (Gemini preferred):
         {
-            "tool_executions": [
+            "vulnerabilities": [
                 {
+                    "contract": "MyContract.sol",
                     "tool": "slither",
-                    "contract": "MyContract.sol",
-                    "findings": [...],
-                },
-                {
-                    "tool": "mythril",
-                    "contract": "MyContract.sol",
-                    "findings": [...],
-                }
-            ],
-            "findings": [
-                {
-                    "contract": "MyContract.sol",
-                    "severity": "high",
-                    "issue": "...",
-                    "tool": "slither"
+                    "severity": "High",
+                    "name": "reentrancy",
+                    "description": "...",
+                    "sourceMap": "MyContract.sol#51-64"
                 }
             ],
             "summary": "Overall analysis summary"
+        }
+
+        Format 2 (Alternative):
+        {
+            "tool_executions": [...],
+            "findings": [...],
+            "summary": "..."
         }
 
         Args:
@@ -1034,7 +1042,7 @@ class ArgusOrchestrator:
                 "analysis": "",
             }
 
-        # Process tool executions
+        # Process tool executions (if provided)
         tool_executions = analysis_results.get("tool_executions", [])
         for execution in tool_executions:
             tool_name = execution.get("tool", "unknown")
@@ -1060,18 +1068,59 @@ class ArgusOrchestrator:
                 )
 
         # Process consolidated findings from LLM
-        all_findings = analysis_results.get("findings", [])
+        # Accept either "findings" or "vulnerabilities" key
+        all_findings = analysis_results.get("findings", analysis_results.get("vulnerabilities", []))
+        _logger.info("Processing %d findings/vulnerabilities", len(all_findings))
+
         for finding in all_findings:
             contract_name = finding.get("contract", "unknown")
+            tool_name = finding.get("tool", "unknown")
+
+            _logger.debug(
+                "Processing finding: contract=%s, tool=%s, severity=%s, name=%s",
+                contract_name,
+                tool_name,
+                finding.get("severity", "?"),
+                finding.get("name", "?")
+            )
+
+            # Normalize contract name - try both with and without .sol extension
+            # LLM might return "Treasury" or "Treasury.sol"
+            matched_contract = None
             if contract_name in self.state.static_analysis_results:
+                matched_contract = contract_name
+                _logger.debug("Found exact match for contract: %s", contract_name)
+            elif f"{contract_name}.sol" in self.state.static_analysis_results:
+                matched_contract = f"{contract_name}.sol"
+                _logger.debug("Found match with .sol extension: %s", matched_contract)
+            elif contract_name.endswith(".sol") and contract_name[:-4] in self.state.static_analysis_results:
+                matched_contract = contract_name[:-4]
+                _logger.debug("Found match without .sol extension: %s", matched_contract)
+
+            if matched_contract:
+                # Track which tool found this (if not already tracked from tool_executions)
+                if (
+                    tool_name != "unknown"
+                    and tool_name not in self.state.static_analysis_results[matched_contract]["tools_used"]
+                ):
+                    self.state.static_analysis_results[matched_contract]["tools_used"].append(tool_name)
+                    _logger.debug("Added tool %s to %s", tool_name, matched_contract)
+
                 # Avoid duplicates
                 if (
                     finding
-                    not in self.state.static_analysis_results[contract_name]["findings"]
+                    not in self.state.static_analysis_results[matched_contract]["findings"]
                 ):
-                    self.state.static_analysis_results[contract_name][
+                    self.state.static_analysis_results[matched_contract][
                         "findings"
                     ].append(finding)
+                    _logger.debug("Added finding to %s", matched_contract)
+            else:
+                _logger.warning(
+                    "Contract '%s' not found in static_analysis_results. Available: %s",
+                    contract_name,
+                    list(self.state.static_analysis_results.keys())
+                )
 
         # Store overall summary at the phase level
         self.state.static_analysis_summary = analysis_results.get("summary", "")

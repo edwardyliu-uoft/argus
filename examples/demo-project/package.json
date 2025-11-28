@@ -1,0 +1,9 @@
+{
+  "name": "demo-project",
+  "version": "1.0.0",
+  "description": "Reward Token Treasury System - Demo project for testing",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^2.0.0",
+    "hardhat": "^2.12.0"
+  }
+}

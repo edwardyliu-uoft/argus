@@ -84,6 +84,14 @@ Generate comprehensive Hardhat test cases for the {contract_name} contract that:
 
 **IMPORTANT**: Carefully review the contract source code provided above. Only use functions, state variables, and events that are explicitly defined in the contract. Do not assume functions exist - verify them in the source code first.
 
+**CRITICAL RESTRICTIONS**:
+- DO NOT modify, overwrite, or edit the original contract files in `contracts/` directory
+- ONLY write to:
+  - Test files in the test directory: `{output_path}`
+  - Helper contracts in: `{project_root}/contracts/test-helpers/`
+- DO NOT modify any `.sol` files outside of `contracts/test-helpers/`
+- Your role is to write TESTS for existing contracts, not to modify the contracts themselves
+
 **Test File Requirements**:
 - File path: `{output_path}`
 - Use describe/it blocks

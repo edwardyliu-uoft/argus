@@ -43,7 +43,24 @@ def tools_info_prompt() -> str:
                     "args": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "Command-line arguments. First arg is target file path (relative to project root), followed by optional flags like --detect, --exclude, --json, etc.",
+                        "description": """Array of command-line arguments for slither.
+
+REQUIRED FORMAT - args must be an array with at least 3 elements:
+  args = [<target_file>, "--json", "-"]
+
+Examples:
+  ✓ CORRECT: args=["contracts/Token.sol", "--json", "-"]
+  ✓ CORRECT: args=["contracts/Treasury.sol", "--json", "-", "--detect", "reentrancy-eth"]
+  ✗ WRONG: args=["contracts/Token.sol"] (missing --json -)
+  ✗ WRONG: args=["contracts/Token.sol", "--json"] (missing trailing -)
+  ✗ WRONG: args=["contracts/Token.sol", "--json", "output.json"] (must use - for stdout)
+
+Explanation:
+  - Element [0]: Target file path, relative to project root (e.g., "contracts/Token.sol")
+  - Elements [1-2]: MUST be "--json" and "-" to output JSON to stdout
+  - Elements [3+]: Optional detector flags like "--detect", "--exclude", etc.
+
+The "--json -" flags are REQUIRED for the tool to return parseable results.""",
                     },
                     "kwargs": {
                         "type": "object",
@@ -67,7 +84,25 @@ def tools_info_prompt() -> str:
                     "args": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "Command-line arguments. First arg should be subcommand ('analyze'), followed by target file (relative to project root), then optional flags like --max-depth, --execution-timeout, etc.",
+                        "description": """Array of command-line arguments for mythril.
+
+REQUIRED FORMAT - args must be an array with at least 4 elements:
+  args = ["analyze", <target_file>, "-o", "json"]
+
+Examples:
+  ✓ CORRECT: args=["analyze", "contracts/Token.sol", "-o", "json"]
+  ✓ CORRECT: args=["analyze", "contracts/Treasury.sol", "-o", "json", "--execution-timeout", "300"]
+  ✗ WRONG: args=["analyze", "contracts/Token.sol"] (missing -o json)
+  ✗ WRONG: args=["contracts/Token.sol", "-o", "json"] (missing 'analyze' subcommand)
+  ✗ WRONG: args=["analyze", "contracts/Token.sol", "--json"] (use -o json, not --json)
+
+Explanation:
+  - Element [0]: MUST be "analyze" (mythril subcommand)
+  - Element [1]: Target file path, relative to project root (e.g., "contracts/Token.sol")
+  - Elements [2-3]: MUST be "-o" and "json" to output JSON format
+  - Elements [4+]: Optional flags like "--execution-timeout", "--max-depth", etc.
+
+The "analyze" subcommand and "-o json" flags are REQUIRED for the tool to return parseable results.""",
                     },
                     "kwargs": {
                         "type": "object",
@@ -312,7 +347,13 @@ You are a smart contract security analyzer with access to static analysis tools.
 **Your Task**:
 1. **RUN the slither and mythril tools** on the contracts (use tool calling)
 2. Analyze the tool outputs to identify vulnerabilities
-3. Provide a consolidated summary
+3. **CRITICAL**: After running all tools, return your final response as valid JSON
+
+**IMPORTANT RESTRICTIONS**:
+- DO NOT modify, write to, or edit any contract files (.sol files)
+- DO NOT create, modify, or delete any files in the project
+- ONLY use read operations (read_file, list_directory) and security tools (slither, mythril)
+- Your role is to ANALYZE existing code, not to modify it
 
 **Analysis Guidelines**:
 - Contract paths are relative to the project root - use them as-is in tool calls
@@ -320,31 +361,37 @@ You are a smart contract security analyzer with access to static analysis tools.
 - Run mythril on contracts with complex logic, fund handling, or access control
 - Focus on high/medium severity issues
 
-**After running the tools, return JSON**:
+**CRITICAL - Final Response Format**:
+After running all tools, return ONLY a JSON object. DO NOT wrap in markdown code blocks.
+Your response must start with {{ and end with }}.
+
+Return ONLY a JSON object of the following structure:
+
 ```json
 {{
-  "tool_executions": [
+  "vulnerabilities": [
     {{
+      "contract": "ContractName.sol",
       "tool": "slither|mythril",
-      "contract": "ContractName.sol",
-      "findings": [/* parsed findings */]
+      "severity": "High|Medium|Low",
+      "name": "vulnerability-name",
+      "description": "detailed description of the issue",
+      "sourceMap": "ContractName.sol#line-numbers"
     }}
   ],
-  "findings": [
-    {{
-      "contract": "ContractName.sol",
-      "severity": "high|medium|low",
-      "category": "category name",
-      "issue": "description",
-      "location": "location",
-      "tool": "slither|mythril"
-    }}
-  ],
-  "summary": "Overall analysis summary"
+  "summary": "Overall analysis summary describing what was found"
 }}
 ```
 
-Start by running the tools on the contracts.
+MANDATORY RULES:
+1. Top-level keys: "vulnerabilities" (array) and "summary" (string)
+2. Each vulnerability MUST include: contract, tool, severity, name, description
+3. severity should be "High", "Medium", or "Low" (capitalize first letter)
+4. tool should be "slither" or "mythril" (the tool that found it)
+5. Use actual contract names from the contracts list above
+6. Include sourceMap with file path and line numbers when available
+
+Run the tools now. You are restricted to ONLY return the JSON with no additional text.
 """
 
 

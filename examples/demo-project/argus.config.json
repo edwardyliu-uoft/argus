@@ -1,0 +1,90 @@
+{
+  "orchestrator": {
+    "llm": "gemini",
+    "cross_contract": {
+      "max_contracts": 10
+    },
+    "parallel_test_generation": true
+  },
+  "llm": {
+    "anthropic": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-5-20250929",
+      "api_key": "ANTHROPIC_API_KEY",
+      "max_retries": 3,
+      "timeout": 600,
+      "max_tool_result_length": 500000
+    },
+    "gemini": {
+      "provider": "gemini",
+      "model": "gemini-2.5-pro",
+      "api_key": "GEMINI_API_KEY",
+      "max_retries": 3,
+      "timeout": 600,
+      "max_tool_result_length": 500000
+    }
+  },
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8000,
+    "mount_path": "/mcp",
+    "tools": {
+      "mythril": {
+        "timeout": 600,
+        "outform": "json",
+        "enabled": true,
+        "max_contracts": 5,
+        "skip_for_large_projects": false,
+        "large_project_threshold": 20,
+        "docker": {
+          "image": "mythril/myth:latest",
+          "network_mode": "bridge",
+          "remove_containers": true
+        }
+      },
+      "slither": {
+        "timeout": 600,
+        "docker": {
+          "image": "trailofbits/eth-security-toolbox:latest",
+          "network_mode": "bridge",
+          "remove_containers": true
+        }
+      },
+      "parallel_slither": {},
+      "parallel_mythril": {},
+      "filesystem": {
+        "functions": [
+          "list_directory",
+          "find_files_by_extension",
+          "read_file_info",
+          "read_file",
+          "write_file",
+          "append_file",
+          "create_directory"
+        ]
+      }
+    },
+    "resources": {
+      "filesystem": {
+        "functions": [
+          "get_workspace",
+          "get_project_structure",
+          "get_solidity_files"
+        ]
+      }
+    }
+  },
+  "generator": {
+    "llm": "gemini",
+    "framework": "hardhat",
+    "test_generation": {
+      "priority_only_threshold": 20,
+      "priority_severities": ["critical", "high"]
+    }
+  },
+  "output": {
+    "directory": "argus",
+    "level": "info"
+  },
+  "workdir": "."
+}
