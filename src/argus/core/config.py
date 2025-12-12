@@ -34,6 +34,18 @@ class ArgusConfig:
         return {
             "orchestrator": {
                 "llm": "gemini",
+                "cross_contract": {
+                    "max_contracts": 10,  # Max contracts for cross-contract analysis
+                },
+                "parallel_test_generation": True,
+                "exclude_dirs": [  # Directories to exclude when discovering contracts
+                    "node_modules",
+                    "test",
+                    "tests",
+                    "build",
+                    "artifacts",
+                    "cache",
+                ],
             },
             "llm": {
                 "anthropic": {
@@ -46,7 +58,7 @@ class ArgusConfig:
                 },
                 "gemini": {
                     "provider": "gemini",
-                    "model": "gemini-2.5-flash",
+                    "model": "gemini-2.5-flash",  # Flash is faster and more cost-effective; use gemini-2.5-pro for better quality
                     "api_key": "GEMINI_API_KEY",  # Environment variable for API key
                     "max_retries": 3,
                     "timeout": 300,
@@ -80,6 +92,11 @@ class ArgusConfig:
             "generator": {
                 "llm": "gemini",
                 "framework": "hardhat",
+                "test_generation": {
+                    "priority_only_threshold": 20,  # Generate only high-priority tests if findings exceed this
+                    "priority_severities": ["critical", "high"],  # Severities considered high-priority
+                    "test_file_prefix": "Argus.",  # Prefix for generated test files
+                },
             },
             "output": {
                 "directory": "argus",

@@ -126,8 +126,12 @@ def config(ctx, key):
 @click.argument("args", nargs=-1)
 @click.pass_context
 def tool(ctx, name, args):
-    """Execute a tool given NAME and ARGS."""
+    """Execute a tool given NAME and ARGS.
+    
+    Note: This command is currently under development.
+    """
     logger = logging.getLogger("argus.console")
+    logger.warning("The 'tool' command is currently under development.")
     logger.info("Running MCP tool: %s", name)
     logger.debug("Tool arguments: %s", " ".join(args))
     # TODO: Implement tool execution logic
@@ -137,8 +141,12 @@ def tool(ctx, name, args):
 @click.argument("name")
 @click.pass_context
 def resource(ctx, name):
-    """Access a resource by NAME."""
+    """Access a resource by NAME.
+    
+    Note: This command is currently under development.
+    """
     logger = logging.getLogger("argus.console")
+    logger.warning("The 'resource' command is currently under development.")
     logger.info("Accessing MCP resource: %s", name)
     # TODO: Implement resource access logic
 
@@ -152,8 +160,13 @@ def resource(ctx, name):
 @click.argument("analysis_report", type=click.Path(exists=True))
 @click.pass_context
 def generate(ctx, generator, analysis_report):
-    """Generate tests using GENERATOR based on ANALYSIS_REPORT."""
+    """Generate tests using GENERATOR based on ANALYSIS_REPORT.
+    
+    Note: This command is currently under development.
+    Test generation is performed automatically during analysis.
+    """
     logger = logging.getLogger("argus.console")
+    logger.warning("The 'generate' command is currently under development.")
     logger.info("Generating tests with generator: %s", generator)
     logger.debug("Using analysis report: %s", analysis_report)
     # TODO: Implement generation logic

@@ -180,15 +180,18 @@ class ArgusOrchestrator:
             _logger.info("Created output directory: %s", self.output_dir)
 
             # look for .sol files
-            # TODO: should we specify this in config instead?
-            exclude_dirs = [
-                "node_modules",
-                "test",
-                "tests",
-                "build",
-                "artifacts",
-                "cache",
-            ]
+            # Get excluded directories from config, or use defaults
+            exclude_dirs = self.config.get(
+                "orchestrator.exclude_dirs",
+                [
+                    "node_modules",
+                    "test",
+                    "tests",
+                    "build",
+                    "artifacts",
+                    "cache",
+                ]
+            )
             self.state.contracts = utils.find_files_with_extension(
                 str(self.project_path),
                 "sol",
