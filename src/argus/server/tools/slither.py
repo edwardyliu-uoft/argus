@@ -12,6 +12,7 @@ from typing import Any, Dict, Optional
 from pathlib import Path
 import logging
 import asyncio
+import json
 
 from argus import utils
 from argus.core import docker as argus_docker
@@ -41,7 +42,10 @@ class SlitherToolPlugin(MCPToolPlugin):
     def initialize(self, config: Optional[Dict[str, Any]] = None) -> None:
         """Initialize the slither tool plugin."""
         self.config = config or {}
-        self.tools = {"slither": self.slither}
+        self.tools = {
+            "slither": self.slither,
+            "query_slither_results": self.query_slither_results,
+        }
         self.initialized = True
 
     async def slither(
@@ -224,12 +228,33 @@ class SlitherToolPlugin(MCPToolPlugin):
             stdout = utils.str2dict(res["stdout"]) if res["stdout"] else {}
             stderr = utils.str2dict(res["stderr"]) if res["stderr"] else {}
 
+            # Log stderr and stdout if container failed
+            if res["container_exit_code"] != 0:
+                _logger.warning(
+                    "Slither container exited with code %d. stderr: %s, stdout: %s",
+                    res["container_exit_code"],
+                    stderr if stderr else res.get("stderr", ""),
+                    res.get("stdout", "")[:500] if res.get("stdout") else "",
+                )
+
+            # STEP 7: Save full results and return summary
+            if isinstance(stdout, dict) and "results" in stdout:
+                _logger.info("Slither returned results dict with %d detectors",
+                           len(stdout.get("results", {}).get("detectors", [])))
+                results_file = self._save_full_results(stdout)
+                if results_file:
+                    _logger.info("Replacing full results with summary for results_file: %s", results_file)
+                    stdout = self._create_summary(stdout, results_file)
+                    _logger.info("Summary created: %d total findings", stdout.get("total_findings", 0))
+                else:
+                    _logger.warning("Failed to save results file, returning full results")
+
             return {
                 "exit_code": res[
                     "exit_code"
                 ],  # 0 = success, >0 = errors found or execution issues
                 "container_exit_code": res["container_exit_code"],
-                "stdout": stdout,  # Primary analysis results
+                "stdout": stdout,  # Primary analysis results (now summary if results saved)
                 "stderr": stderr,  # Errors, warnings, or diagnostic messages
             }
 
@@ -241,4 +266,168 @@ class SlitherToolPlugin(MCPToolPlugin):
                 "container_exit_code": None,
                 "stdout": "",
                 "stderr": f"Unexpected error during Docker execution: {str(e)}",
+            }
+
+    def _save_full_results(self, results: dict) -> Optional[str]:
+        """Save full Slither results to file and return file path."""
+        try:
+            # Get output directory from config (orchestrator sets this)
+            output_dir = self.config.get("output_dir")
+            if not output_dir:
+                _logger.warning("No output_dir in config, cannot save Slither results")
+                return None
+
+            output_path = Path(output_dir) / "slither-full-results.json"
+            with open(output_path, "w", encoding="utf-8") as f:
+                json.dump(results, f, indent=2)
+
+            _logger.info("Saved full Slither results to: %s", output_path)
+            return str(output_path)
+        except Exception as e:
+            _logger.error("Failed to save Slither results: %s", e)
+            return None
+
+    def _create_summary(self, results: dict, results_file: str) -> dict:
+        """Create summary of Slither results."""
+        if not isinstance(results, dict) or "results" not in results:
+            return {"error": "Invalid results format"}
+
+        detectors = results.get("results", {}).get("detectors", [])
+
+        # Count by severity
+        by_severity = {}
+        by_detector = {}
+        by_contract = {}
+
+        for finding in detectors:
+            impact = finding.get("impact", "Unknown")
+            detector = finding.get("check", "unknown")
+
+            # Count by severity
+            by_severity[impact] = by_severity.get(impact, 0) + 1
+            by_detector[detector] = by_detector.get(detector, 0) + 1
+
+            # Extract contracts from elements
+            for element in finding.get("elements", []):
+                if element.get("type") == "contract":
+                    contract_name = element.get("name", "Unknown")
+                    by_contract[contract_name] = by_contract.get(contract_name, 0) + 1
+
+        return {
+            "success": results.get("success", False),
+            "results_file": results_file,
+            "total_findings": len(detectors),
+            "by_severity": by_severity,
+            "by_detector": by_detector,
+            "by_contract": by_contract,
+            "message": f"Full results saved to {results_file}. Use query_slither_results to retrieve filtered findings.",
+        }
+
+    async def query_slither_results(
+        self,
+        results_file: str,
+        severity: Optional[list] = None,
+        detector_types: Optional[list] = None,
+        contracts: Optional[list] = None,
+        limit: int = 50,
+    ) -> Dict[str, Any]:
+        """
+        Query Slither results with server-side filtering.
+
+        Allows retrieving specific findings from saved Slither results without
+        loading the entire file into LLM context.
+
+        Args:
+            results_file: Path to slither-full-results.json file
+            severity: Filter by severity levels (e.g. ["High", "Medium"])
+            detector_types: Filter by detector names (e.g. ["reentrancy-eth"])
+            contracts: Filter by contract names (e.g. ["Visor.sol"])
+            limit: Maximum number of findings to return (default 50)
+
+        Returns:
+            Dict with filtered findings and metadata
+
+        Examples:
+            # Get all high-severity findings
+            query_slither_results(
+                results_file="argus/20251210/slither-full-results.json",
+                severity=["High"]
+            )
+
+            # Get reentrancy findings
+            query_slither_results(
+                results_file="argus/20251210/slither-full-results.json",
+                detector_types=["reentrancy-eth", "reentrancy-no-eth"]
+            )
+        """
+        _logger.info("Query Slither results: file=%s, severity=%s, detector_types=%s, contracts=%s, limit=%d",
+                    results_file, severity, detector_types, contracts, limit)
+        try:
+            # Load full results
+            with open(results_file, "r", encoding="utf-8") as f:
+                full_results = json.load(f)
+
+            detectors = full_results.get("results", {}).get("detectors", [])
+
+            # Apply filters
+            filtered = []
+            for finding in detectors:
+                # Filter by severity
+                if severity and finding.get("impact") not in severity:
+                    continue
+
+                # Filter by detector type
+                if detector_types and finding.get("check") not in detector_types:
+                    continue
+
+                # Filter by contract (check if any element matches)
+                if contracts:
+                    contract_match = False
+                    for element in finding.get("elements", []):
+                        if (
+                            element.get("type") == "contract"
+                            and element.get("name") in contracts
+                        ):
+                            contract_match = True
+                            break
+                    if not contract_match:
+                        continue
+
+                # Simplify finding (remove verbose fields to save space)
+                simplified = {
+                    "check": finding.get("check"),
+                    "impact": finding.get("impact"),
+                    "confidence": finding.get("confidence"),
+                    "description": finding.get("description"),
+                    "first_markdown_element": finding.get("first_markdown_element"),
+                }
+
+                filtered.append(simplified)
+
+                # Respect limit
+                if len(filtered) >= limit:
+                    break
+
+            result = {
+                "success": True,
+                "findings": filtered,
+                "total_found": len(filtered),
+                "total_available": len(detectors),
+                "truncated": len(filtered) >= limit,
+            }
+            _logger.info("Query returned %d findings (out of %d total, truncated=%s)",
+                        len(filtered), len(detectors), len(filtered) >= limit)
+            return result
+
+        except FileNotFoundError:
+            return {
+                "success": False,
+                "error": f"Results file not found: {results_file}",
+                "findings": [],
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Failed to query results: {str(e)}",
+                "findings": [],
             }

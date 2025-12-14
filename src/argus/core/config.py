@@ -34,6 +34,10 @@ class ArgusConfig:
         return {
             "orchestrator": {
                 "llm": "gemini",
+                "enable_contract_filtering": True,
+                "filter_low_confidence_threshold": 7,
+                "skip_project_semantic_if_large": True,
+                "project_semantic_max_contracts": 10,
                 "cross_contract": {
                     "max_contracts": 10,  # Max contracts for cross-contract analysis
                 },

@@ -7,10 +7,11 @@ Provides tools for file and directory operations including:
 - Path operations (get info, check existence)
 """
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Set
 from pathlib import Path
 import logging
 from datetime import datetime
+import json
 
 from argus import utils
 from argus.plugins import MCPToolPlugin
@@ -23,6 +24,7 @@ class FilesystemToolPlugin(MCPToolPlugin):
     """Plugin wrapper for filesystem tools"""
 
     config: Dict[str, Any]
+    _write_protected_files: Optional[Set[str]] = None
 
     @property
     def name(self) -> str:
@@ -49,6 +51,64 @@ class FilesystemToolPlugin(MCPToolPlugin):
             "create_directory": self.create_directory,
         }
         self.initialized = True
+        self._write_protected_files = None  # Lazy loaded
+
+    def _load_write_protected_files(self) -> Set[str]:
+        """
+        Load write-protected file paths from the output directory.
+
+        Returns:
+            Set of absolute file paths that should be write-protected
+        """
+        if self._write_protected_files is not None:
+            return self._write_protected_files
+
+        protected_files = set()
+
+        # Get output_dir from config (set by orchestrator)
+        output_dir = self.config.get("output_dir")
+        if output_dir:
+            protected_files_path = Path(output_dir) / "write-protected-files.json"
+            if protected_files_path.exists():
+                try:
+                    with open(protected_files_path, "r", encoding="utf-8") as f:
+                        file_list = json.load(f)
+                        protected_files = {str(Path(p).resolve()) for p in file_list}
+                    _logger.info(
+                        "Loaded %d write-protected files from %s",
+                        len(protected_files),
+                        protected_files_path,
+                    )
+                except Exception as e:
+                    _logger.warning(
+                        "Failed to load write-protected files: %s", e
+                    )
+
+        self._write_protected_files = protected_files
+        return protected_files
+
+    def _is_write_protected(self, path: Path) -> tuple[bool, str]:
+        """
+        Check if a file path is write-protected.
+
+        Args:
+            path: Absolute path to check
+
+        Returns:
+            Tuple of (is_protected: bool, reason: str)
+        """
+        protected_files = self._load_write_protected_files()
+
+        if not protected_files:
+            return False, ""
+
+        # Normalize path for comparison
+        abs_path = str(path.resolve())
+
+        if abs_path in protected_files:
+            return True, "File is a discovered source contract and cannot be modified"
+
+        return False, ""
 
     async def list_directory(
         self,
@@ -488,6 +548,17 @@ class FilesystemToolPlugin(MCPToolPlugin):
                 )
                 path = work_dir / path
 
+            # Check write protection BEFORE attempting to write
+            is_protected, reason = self._is_write_protected(path)
+            if is_protected:
+                _logger.warning("Write rejected (protected): %s - %s", path, reason)
+                return {
+                    "success": False,
+                    "path": path.as_posix(),
+                    "total_size": 0,
+                    "error": f"Write operation rejected: {reason}. You can only create NEW test files, not modify existing source contracts.",
+                }
+
             # Create parent directories if needed
             path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -550,6 +621,18 @@ class FilesystemToolPlugin(MCPToolPlugin):
                     )
                 )
                 path = work_dir / path
+
+            # Check write protection BEFORE attempting to append
+            is_protected, reason = self._is_write_protected(path)
+            if is_protected:
+                _logger.warning("Append rejected (protected): %s - %s", path, reason)
+                return {
+                    "success": False,
+                    "path": path.as_posix(),
+                    "appended_size": 0,
+                    "total_size": 0,
+                    "error": f"Append operation rejected: {reason}. You can only create NEW test files, not modify existing source contracts.",
+                }
 
             # Create parent directories if needed
             path.parent.mkdir(parents=True, exist_ok=True)

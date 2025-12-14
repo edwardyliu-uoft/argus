@@ -132,9 +132,10 @@ class AnthropicProvider(BaseLLMProvider):
         # Max iterations reached
         return "Max tool use iterations reached"
 
-    def call_simple(self, prompt: str) -> str:
+    async def call_simple(self, prompt: str) -> str:
         """
         Call Claude without tools (simple text completion).
+        Includes retry logic for connection failures.
 
         Args:
             prompt: User prompt
@@ -142,20 +143,65 @@ class AnthropicProvider(BaseLLMProvider):
         Returns:
             Text response
         """
-        try:
-            response = self.client.messages.create(
-                model=self.config.get("model"),
-                max_tokens=self.config.get("max_tokens", 4096),
-                messages=[{"role": "user", "content": prompt}],
-            )
+        from argus import utils
+        import asyncio
 
-            final_text = ""
-            for block in response.content:
-                if block.type == "text":
-                    final_text += block.text
+        max_retries = utils.conf_get(self.config, "llm.max_retries", 3)
+        retry_delay = utils.conf_get(self.config, "llm.retry_delay", 2.0)
 
-            return final_text
+        for attempt in range(max_retries):
+            try:
+                response = self.client.messages.create(
+                    model=self.config.get("model"),
+                    max_tokens=self.config.get("max_tokens", 4096),
+                    messages=[{"role": "user", "content": prompt}],
+                )
 
-        except Exception as e:
-            _logger.error("\tLLM call failed: %s", e)
-            raise
+                final_text = ""
+                for block in response.content:
+                    if block.type == "text":
+                        final_text += block.text
+
+                return final_text
+
+            except Exception as e:
+                error_str = str(e).lower()
+
+                # Check if this is a retryable error
+                is_retryable = any(
+                    keyword in error_str
+                    for keyword in [
+                        "disconnected",
+                        "connection",
+                        "timeout",
+                        "remote protocol",
+                        "broken pipe",
+                        "reset by peer",
+                        "server error",
+                        "503",
+                        "502",
+                        "500",
+                        "429",  # Rate limit
+                        "overloaded",
+                    ]
+                )
+
+                if is_retryable and attempt < max_retries - 1:
+                    _logger.warning(
+                        "LLM call failed (attempt %d/%d): %s. Retrying in %.1fs...",
+                        attempt + 1,
+                        max_retries,
+                        e,
+                        retry_delay,
+                    )
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                    continue
+                else:
+                    # Non-retryable or final attempt
+                    if attempt == max_retries - 1:
+                        _logger.error(
+                            "LLM call failed after %d attempts: %s", max_retries, e
+                        )
+                    _logger.error("\tLLM call failed: %s", e)
+                    raise

@@ -36,6 +36,11 @@ class OrchestrationState:
         # Phase 2: File-level semantic analysis
         self.file_semantic_findings: Dict[str, List[Dict]] = {}
 
+        # Phase 2: Contract classification metadata
+        self.contracts_metadata: Dict[str, Dict] = {}
+        self.contracts_to_analyze: List[Path] = []
+        self.contracts_skipped: List[Path] = []
+
         # Phase 3: Project-level semantic analysis
         self.project_semantic_findings: List[Dict] = []
         self.cross_contract_findings: List[Dict] = []
@@ -81,14 +86,48 @@ class ArgusOrchestrator:
         output_dir_name = self.config.get("output.directory", "argus")
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.output_dir = self.project_path / output_dir_name / timestamp
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Set up file logging
+        self._setup_file_logging()
 
         # Start MCP server for LLM tool access
         mcp_host = self.config.get("server.host", "127.0.0.1")
         mcp_port = self.config.get("server.port", 8000)
-        self.mcp_server = mcp_server.start(host=mcp_host, port=mcp_port)
+        log_file = self.output_dir / "argus-analysis.log"
+        self.mcp_server = mcp_server.start(
+            host=mcp_host,
+            port=mcp_port,
+            log_file=str(log_file),
+            output_dir=str(self.output_dir),
+        )
         _logger.info("Started MCP server at http://%s:%d/mcp", mcp_host, mcp_port)
         _logger.info("Initialized Argus Orchestrator for %s", self.project_path)
         _logger.info("Output directory: %s", self.output_dir)
+
+    def _setup_file_logging(self) -> None:
+        """Set up file logging to capture all logs to a file in the output directory."""
+        log_file = self.output_dir / "argus-analysis.log"
+
+        # Create file handler
+        file_handler = logging.FileHandler(log_file, mode="w", encoding="utf-8")
+
+        # Set format (same as console but with timestamp)
+        formatter = logging.Formatter(
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+        file_handler.setFormatter(formatter)
+
+        # Always use DEBUG level for file logging to capture all details
+        file_handler.setLevel(logging.DEBUG)
+
+        # Add handler to root logger to capture all argus.* loggers
+        root_logger = logging.getLogger("argus")
+        root_logger.setLevel(logging.DEBUG)  # Set logger level to DEBUG too
+        root_logger.addHandler(file_handler)
+
+        _logger.info("Logging to file: %s", log_file)
 
     async def run(self) -> Dict[str, Any]:
         """Execute all 7 phases of analysis.
@@ -113,6 +152,7 @@ class ArgusOrchestrator:
             # Phase 4: Static Analysis
             await self.phase4_static_analysis()
 
+            # FOR DEBUGGING
             # Phase 5: Endpoint Extraction
             await self.phase5_endpoint_extraction()
 
@@ -213,7 +253,7 @@ class ArgusOrchestrator:
             # Look for other documentation
             docs_dir = self.project_path / "docs"
             if docs_dir.exists():
-                doc_files = utils.find_files_with_extension(str(docs_dir), ".md")
+                doc_files = utils.find_files_with_extension(str(docs_dir), "md")
                 for doc_file in doc_files:
                     doc_name = doc_file.stem
                     self.state.documentation[doc_name] = utils.read_file(str(doc_file))
@@ -237,6 +277,21 @@ class ArgusOrchestrator:
             #     # write_file(self.output_dir / "initialization_summary.json", json.dumps(summary, indent=2))
 
             _logger.info("Initial discovery complete")
+
+            # Save list of discovered contracts for write protection
+            # The MCP server filesystem plugin will use this to prevent
+            # modification of existing source contracts
+            if self.state.contracts:
+                protected_files = [str(c.resolve()) for c in self.state.contracts]
+                protected_files_path = self.output_dir / "write-protected-files.json"
+                import json
+                with open(protected_files_path, "w", encoding="utf-8") as f:
+                    json.dump(protected_files, f, indent=2)
+                _logger.info(
+                    "Saved %d write-protected contract paths to %s",
+                    len(protected_files),
+                    protected_files_path,
+                )
 
         except Exception as e:
             _logger.error("Phase 1 failed: %s", e, exc_info=True)
@@ -279,10 +334,14 @@ class ArgusOrchestrator:
                 len(findings) for findings in self.state.file_semantic_findings.values()
             )
             _logger.info(
-                "Phase 2 complete: %d findings across %d contracts",
+                "Phase 2 semantic analysis complete: %d findings across %d contracts",
                 total_findings,
                 len(self.state.contracts),
             )
+
+            # Apply filtering based on classification
+            _logger.info("")
+            self._apply_contract_filter()
 
         except Exception as e:
             _logger.error("Phase 2 failed: %s", e, exc_info=True)
@@ -324,12 +383,64 @@ class ArgusOrchestrator:
             _logger.info(response)
             _logger.info("=" * 80)
 
-            # Parse findings from response
+            # Parse findings and classification from response
             try:
                 findings_data = utils.parse_json_llm(response)
+
+                # Extract findings
                 self.state.file_semantic_findings[contract_name] = findings_data.get(
                     "findings", []
                 )
+
+                # Extract classification metadata
+                classification = findings_data.get("contract_classification", {})
+
+                # Provide safe defaults if classification is missing or incomplete
+                if not classification:
+                    _logger.warning(
+                        "No classification provided for %s, defaulting to analyze",
+                        contract_name,
+                    )
+                    classification = {
+                        "is_standard_library": False,
+                        "library_type": None,
+                        "is_test_contract": False,
+                        "is_mock_contract": False,
+                        "complexity": "unknown",
+                        "should_analyze_further": True,  # Safe default: analyze when unsure
+                        "skip_reason": None,
+                        "confidence": 5,
+                    }
+
+                # Ensure should_analyze_further is present with safe default
+                if "should_analyze_further" not in classification:
+                    classification["should_analyze_further"] = True
+                    classification["confidence"] = classification.get("confidence", 5)
+
+                # Store classification in state
+                self.state.contracts_metadata[contract_name] = classification
+
+                # Log classification decision for transparency
+                should_analyze = classification.get("should_analyze_further", True)
+                skip_reason = classification.get("skip_reason", "N/A")
+                confidence = classification.get("confidence", 0)
+                complexity = classification.get("complexity", "unknown")
+
+                if should_analyze:
+                    _logger.info(
+                        "✓ %s marked FOR ANALYSIS (complexity: %s, confidence: %d/10)",
+                        contract_name,
+                        complexity,
+                        confidence,
+                    )
+                else:
+                    _logger.info(
+                        "⊘ %s marked TO SKIP - reason: %s (confidence: %d/10)",
+                        contract_name,
+                        skip_reason,
+                        confidence,
+                    )
+
                 _logger.info(
                     "Successfully parsed %d findings for %s",
                     len(self.state.file_semantic_findings[contract_name]),
@@ -343,8 +454,13 @@ class ArgusOrchestrator:
                     contract_name,
                     e,
                 )
-                # Fallback to empty findings
+                # Fallback: empty findings + safe default classification
                 self.state.file_semantic_findings[contract_name] = []
+                self.state.contracts_metadata[contract_name] = {
+                    "should_analyze_further": True,  # Conservative: analyze if parsing fails
+                    "skip_reason": None,
+                    "confidence": 0,
+                }
 
             _logger.info(
                 "Completed analysis of %s: %d findings",
@@ -356,6 +472,122 @@ class ArgusOrchestrator:
         except Exception as e:
             _logger.error("Failed to analyze %s: %s", contract_path.name, e)
             self.state.errors.append(f"Phase 2 ({contract_path.name}): {str(e)}")
+
+    def _apply_contract_filter(self) -> None:
+        """Apply filtering based on Phase 2 classification metadata.
+
+        Creates contracts_to_analyze and contracts_skipped lists based on
+        the should_analyze_further flag in contracts_metadata.
+
+        Respects configuration settings:
+        - orchestrator.enable_contract_filtering
+        - orchestrator.filter_low_confidence_threshold
+
+        Edge case handling:
+        - If all contracts filtered out → fallback to analyze all
+        - If low confidence → analyze anyway (conservative)
+        """
+        _logger.info("=" * 80)
+        _logger.info("APPLYING CONTRACT FILTER")
+        _logger.info("=" * 80)
+
+        # Check if filtering is enabled in config
+        enable_filtering = self.config.get("orchestrator.enable_contract_filtering", True)
+
+        if not enable_filtering:
+            _logger.info("Contract filtering DISABLED in config - analyzing all contracts")
+            self.state.contracts_to_analyze = self.state.contracts.copy()
+            self.state.contracts_skipped = []
+            _logger.info("All %d contracts will be analyzed", len(self.state.contracts))
+            return
+
+        # Get confidence threshold from config
+        min_confidence = self.config.get("orchestrator.filter_low_confidence_threshold", 7)
+
+        # Separate contracts based on classification
+        contracts_to_analyze = []
+        contracts_skipped = []
+
+        for contract in self.state.contracts:
+            contract_name = contract.name
+            metadata = self.state.contracts_metadata.get(contract_name, {})
+
+            should_analyze = metadata.get("should_analyze_further", True)
+            confidence = metadata.get("confidence", 0)
+            skip_reason = metadata.get("skip_reason", "unspecified")
+
+            # Safety check: if classification confidence is low, be conservative and analyze
+            if not should_analyze and confidence < min_confidence:
+                _logger.warning(
+                    "  Low confidence (%d < %d) for skipping %s - analyzing anyway for safety",
+                    confidence,
+                    min_confidence,
+                    contract_name,
+                )
+                should_analyze = True
+
+            if should_analyze:
+                contracts_to_analyze.append(contract)
+            else:
+                contracts_skipped.append(contract)
+                _logger.info(
+                    "  Skipping %s: %s (confidence: %d)",
+                    contract_name,
+                    skip_reason,
+                    confidence,
+                )
+
+        # EDGE CASE: All contracts filtered out - fallback to analyze all
+        if not contracts_to_analyze and self.state.contracts:
+            _logger.warning("=" * 80)
+            _logger.warning("WARNING: All contracts were filtered out!")
+            _logger.warning("This may indicate:")
+            _logger.warning("  1. All contracts are standard libraries (no custom code)")
+            _logger.warning("  2. LLM classification was too aggressive")
+            _logger.warning("  3. Configuration settings are too strict")
+            _logger.warning("Falling back to analyzing all contracts to ensure coverage.")
+            _logger.warning("=" * 80)
+
+            contracts_to_analyze = self.state.contracts.copy()
+            contracts_skipped = []
+
+        # Update state
+        self.state.contracts_to_analyze = contracts_to_analyze
+        self.state.contracts_skipped = contracts_skipped
+
+        # Log comprehensive summary
+        total = len(self.state.contracts)
+        analyze_count = len(contracts_to_analyze)
+        skip_count = len(contracts_skipped)
+
+        _logger.info("=" * 80)
+        _logger.info("FILTER RESULTS:")
+        _logger.info("  Total contracts discovered: %d", total)
+        _logger.info(
+            "  Contracts to analyze in-depth: %d (%.1f%%)",
+            analyze_count,
+            100 * analyze_count / total if total > 0 else 0,
+        )
+        _logger.info(
+            "  Contracts skipped: %d (%.1f%%)",
+            skip_count,
+            100 * skip_count / total if total > 0 else 0,
+        )
+
+        # Breakdown by skip reason
+        if contracts_skipped:
+            _logger.info("")
+            _logger.info("Skipped contracts by reason:")
+            skip_reasons = {}
+            for contract in contracts_skipped:
+                metadata = self.state.contracts_metadata.get(contract.name, {})
+                reason = metadata.get("skip_reason", "unspecified")
+                skip_reasons[reason] = skip_reasons.get(reason, 0) + 1
+
+            for reason, count in sorted(skip_reasons.items()):
+                _logger.info("  - %s: %d contracts", reason, count)
+
+        _logger.info("=" * 80)
 
     # =========================================================================
     # PHASE 3: PROJECT-LEVEL SEMANTIC ANALYSIS
@@ -374,14 +606,39 @@ class ArgusOrchestrator:
 
         self.state.current_phase = "project_semantic_analysis"
 
-        if not self.state.contracts:
+        if not self.state.contracts_to_analyze:
             _logger.warning("No contracts to analyze, skipping Phase 3")
             return
 
+        # Check if project is too large for project-level semantic analysis
+        skip_if_large = self.config.get("orchestrator.skip_project_semantic_if_large", True)
+        max_contracts = self.config.get("orchestrator.project_semantic_max_contracts", 10)
+
+        if skip_if_large and len(self.state.contracts_to_analyze) > max_contracts:
+            _logger.warning("=" * 80)
+            _logger.warning(
+                "Skipping Phase 3: Project has %d contracts (threshold: %d)",
+                len(self.state.contracts_to_analyze),
+                max_contracts,
+            )
+            _logger.warning(
+                "Project-level semantic analysis disabled for large projects to prevent context overflow."
+            )
+            _logger.warning(
+                "To enable, set orchestrator.skip_project_semantic_if_large=false or increase "
+                "orchestrator.project_semantic_max_contracts in config."
+            )
+            _logger.warning("=" * 80)
+            return
+
         try:
-            # Always perform project-level analysis
-            # Even without explicit docs, contracts may have comments/docstrings
+            # Perform project-level analysis if project size is manageable
             _logger.info("Performing project-level semantic analysis")
+            _logger.info(
+                "Analyzing %d contracts (threshold: %d)",
+                len(self.state.contracts_to_analyze),
+                max_contracts,
+            )
 
             # Combine all documentation (may be empty)
             readme = self.state.documentation.get("README", "No README found")
@@ -398,7 +655,7 @@ class ArgusOrchestrator:
 
             # Read contract code for project-level analysis
             contracts_data = {}
-            for contract in self.state.contracts:
+            for contract in self.state.contracts_to_analyze:
                 code = utils.read_file(str(contract))
                 contracts_data[contract.name] = code
 
@@ -447,24 +704,24 @@ class ArgusOrchestrator:
             )
 
             # Perform cross-contract analysis if multiple contracts exist
-            if len(self.state.contracts) > 1:
+            if len(self.state.contracts_to_analyze) > 1:
                 _logger.info("Performing cross-contract analysis")
 
                 # Read contract code for cross-contract analysis
                 # Limit to avoid context overflow
                 max_contracts = 5
-                contracts_to_analyze = self.state.contracts[:max_contracts]
+                contracts_to_analyze = self.state.contracts_to_analyze[:max_contracts]
 
                 contracts_data = {}
                 for contract in contracts_to_analyze:
                     code = utils.read_file(str(contract))
                     contracts_data[contract.name] = code
 
-                if len(self.state.contracts) > max_contracts:
+                if len(self.state.contracts_to_analyze) > max_contracts:
                     _logger.info(
-                        "Analyzing %d of %d contracts to avoid context overflow",
+                        "Analyzing %d of %d filtered contracts to avoid context overflow",
                         max_contracts,
-                        len(self.state.contracts),
+                        len(self.state.contracts_to_analyze),
                     )
 
                 # Generate cross-contract analysis prompt
@@ -512,7 +769,7 @@ class ArgusOrchestrator:
                 )
             else:
                 _logger.info(
-                    "Only one contract found, skipping cross-contract analysis"
+                    "Only one contract in filtered set, skipping cross-contract analysis"
                 )
 
             total_findings = len(self.state.project_semantic_findings) + len(
@@ -544,16 +801,20 @@ class ArgusOrchestrator:
 
         self.state.current_phase = "static_analysis"
 
-        if not self.state.contracts:
+        if not self.state.contracts_to_analyze:
             _logger.warning("No contracts to analyze, skipping Phase 4")
             return
 
         try:
+            # Ensure dependencies are installed before running static analysis tools
+            # This is critical for tools like Slither and Mythril to resolve imports
+            await self._ensure_hardhat_installed()
+
             _logger.info("Preparing context for LLM-driven static analysis")
 
             # Prepare contract data
             contract_data = {}
-            for contract in self.state.contracts:
+            for contract in self.state.contracts_to_analyze:
                 code = utils.read_file(str(contract))
                 contract_data[contract.name] = {
                     "code": code,
@@ -562,9 +823,15 @@ class ArgusOrchestrator:
                 }
 
             # Combine all semantic findings for context
+            # Only include file-level findings from contracts being analyzed
             all_semantic_findings = []
-            for findings in self.state.file_semantic_findings.values():
-                all_semantic_findings.extend(findings)
+            for contract in self.state.contracts_to_analyze:
+                contract_name = contract.name
+                if contract_name in self.state.file_semantic_findings:
+                    all_semantic_findings.extend(
+                        self.state.file_semantic_findings[contract_name]
+                    )
+            # Project-level and cross-contract findings are already filtered by Phase 3
             all_semantic_findings.extend(self.state.project_semantic_findings)
             all_semantic_findings.extend(self.state.cross_contract_findings)
 
@@ -574,8 +841,9 @@ class ArgusOrchestrator:
             )
 
             _logger.info(
-                "Invoking LLM with tool access for %d contracts",
-                len(self.state.contracts),
+                "Invoking LLM with tool access for %d filtered contracts (%d skipped)",
+                len(self.state.contracts_to_analyze),
+                len(self.state.contracts_skipped),
             )
 
             # Log the prompt being sent (for debugging)
@@ -667,14 +935,60 @@ class ArgusOrchestrator:
 
         # pylint: disable=broad-except
         except Exception as e:
-            _logger.error("Phase 4 failed: %s", e, exc_info=True)
-            self.state.errors.append(f"Phase 4: {str(e)}")
-            raise
+            error_str = str(e).lower()
+
+            # Check if this is a server connection error
+            is_server_error = any(
+                keyword in error_str
+                for keyword in [
+                    "disconnected",
+                    "connection",
+                    "server",
+                    "remote protocol",
+                ]
+            )
+
+            if is_server_error:
+                _logger.error(
+                    "Phase 4 failed due to MCP server connection issue: %s", e
+                )
+                _logger.warning(
+                    "Static analysis could not complete. Continuing with semantic findings only..."
+                )
+
+                # Store error but don't raise - allow orchestration to continue
+                self.state.errors.append(
+                    f"Phase 4: MCP server connection failed - {str(e)}"
+                )
+                self.state.static_analysis_summary = (
+                    "Static analysis tools (Slither/Mythril) could not be executed "
+                    "due to MCP server connection issues. Analysis continues with "
+                    "semantic findings only."
+                )
+
+                # Log that we're continuing despite the error
+                _logger.info(
+                    "Phase 4 skipped: %d static analysis findings (graceful degradation)",
+                    0,
+                )
+            else:
+                # Non-server error - still fail
+                _logger.error("Phase 4 failed: %s", e, exc_info=True)
+                self.state.errors.append(f"Phase 4: {str(e)}")
+                raise
         finally:
             # Cleanup: close MCP client session
             _logger.info("Cleaning up MCP client session...")
-            await self.llm.cleanup_mcp_session()
-            _logger.info("MCP client session closed")
+            try:
+                await self.llm.cleanup_mcp_session()
+                _logger.info("MCP client session closed")
+            # pylint: disable=broad-except
+            except Exception as cleanup_error:
+                _logger.warning(
+                    "Session termination failed: %s", str(cleanup_error)
+                )
+                # MCP server process will be terminated in main finally block,
+                # which will clean up all resources including Docker containers
 
     # =========================================================================
     # PHASE 5: ENDPOINT EXTRACTION
@@ -693,19 +1007,20 @@ class ArgusOrchestrator:
 
         self.state.current_phase = "endpoint_extraction"
 
-        if not self.state.contracts:
+        if not self.state.contracts_to_analyze:
             _logger.warning("No contracts to analyze, skipping Phase 5")
             return
 
         try:
             _logger.info(
-                "Extracting endpoints from %d contracts", len(self.state.contracts)
+                "Extracting endpoints from %d filtered contracts",
+                len(self.state.contracts_to_analyze),
             )
 
             # Extract endpoints concurrently for better performance
             tasks = [
                 self._extract_contract_endpoints(contract)
-                for contract in self.state.contracts
+                for contract in self.state.contracts_to_analyze
             ]
             await asyncio.gather(*tasks)
 
@@ -819,6 +1134,7 @@ class ArgusOrchestrator:
 
         try:
             # Ensure Hardhat is installed before test generation begins
+            # (may already be installed from Phase 4 static analysis)
             # This prevents npx prompts during the iterative test generation process
             await self._ensure_hardhat_installed()
             # Import generator
@@ -826,7 +1142,7 @@ class ArgusOrchestrator:
 
             # Create generator instance with all analysis results
             generator = TestGenerator(
-                contracts=self.state.contracts,
+                contracts=self.state.contracts_to_analyze,
                 file_semantic_findings=self.state.file_semantic_findings,
                 project_semantic_findings=self.state.project_semantic_findings,
                 cross_contract_findings=self.state.cross_contract_findings,
@@ -884,9 +1200,18 @@ class ArgusOrchestrator:
             raw_data = {
                 "timestamp": timestamp,
                 "duration": duration,
-                "contracts": [
+                "contracts_discovered": [
                     str(c.relative_to(self.project_path)) for c in self.state.contracts
                 ],
+                "contracts_analyzed": [
+                    str(c.relative_to(self.project_path))
+                    for c in self.state.contracts_to_analyze
+                ],
+                "contracts_skipped": [
+                    str(c.relative_to(self.project_path))
+                    for c in self.state.contracts_skipped
+                ],
+                "contracts_metadata": self.state.contracts_metadata,
                 "file_semantic_findings": self.state.file_semantic_findings,
                 "project_semantic_findings": self.state.project_semantic_findings,
                 "cross_contract_findings": self.state.cross_contract_findings,
@@ -908,10 +1233,20 @@ class ArgusOrchestrator:
                 static_analysis_results=self.state.static_analysis_results,
                 endpoints=self.state.endpoints,
                 test_results=self.state.test_results,
-                contracts=self.state.contracts,
+                contracts=self.state.contracts_to_analyze,
+                contracts_skipped=self.state.contracts_skipped,
+                contracts_metadata=self.state.contracts_metadata,
             )
 
+            # Measure prompt size
+            prompt_size_chars = len(prompt)
+            prompt_size_kb = prompt_size_chars / 1024
+            # Rough token estimate (1 token ≈ 4 characters for English)
+            estimated_tokens = prompt_size_chars // 4
+
             _logger.info("Generating comprehensive final report...")
+            _logger.info("Report prompt size: %d chars (%.1f KB, ~%d tokens estimated)",
+                        prompt_size_chars, prompt_size_kb, estimated_tokens)
 
             # Call LLM to generate the report
             report_content = await self.llm.call_simple(prompt)
@@ -950,8 +1285,12 @@ class ArgusOrchestrator:
         """Ensure Hardhat dependencies are installed to prevent interactive prompts.
 
         Runs `npm install` to install dependencies from package.json if node_modules
-        doesn't exist or is incomplete. This is called once at the start of Phase 6
-        (test generation) to ensure Hardhat is available for compile/test cycles.
+        doesn't exist or is incomplete. This is called at the start of Phase 4
+        (static analysis) and Phase 6 (test generation) to ensure:
+        - Static analysis tools can resolve imports (OpenZeppelin, etc.)
+        - Hardhat is available for compile/test cycles
+
+        Safe to call multiple times - checks if already installed first.
         """
         try:
             _logger.info("Checking Hardhat installation...")

@@ -46,6 +46,8 @@ class ArgusMCPServer(Process):
             host: Server host address
             port: Server port
             mount_path: API mount path
+            log_file: Optional path to log file for file logging
+            output_dir: Output directory for saving results
         """
         super().__init__(target=self.run, name="ArgusMCPServerProcess")
         self.app: Optional[FastMCP] = None
@@ -58,6 +60,8 @@ class ArgusMCPServer(Process):
             conf.get("server.json_response", True),
         )
         self.host = kwargs.get("host", conf.get("server.host", "127.0.0.1"))
+        self.log_file = kwargs.get("log_file", None)
+        self.output_dir = kwargs.get("output_dir", None)
         self.port = kwargs.get("port", conf.get("server.port", 8000))
         self.mount_path = kwargs.get(
             "mount_path",
@@ -66,6 +70,35 @@ class ArgusMCPServer(Process):
 
     def run(self) -> None:
         """Construct FastMCP in the child process and run it (blocking)."""
+        # DEBUG: Print to verify log_file is set (print works in multiprocessing)
+        print(f"[DEBUG] MCP Server process started, log_file={self.log_file}")
+
+        # Set up file logging in this process if log_file was provided
+        if self.log_file:
+            try:
+                file_handler = logging.FileHandler(self.log_file, mode="a", encoding="utf-8")
+                formatter = logging.Formatter(
+                    "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+                    datefmt="%Y-%m-%d %H:%M:%S",
+                )
+                file_handler.setFormatter(formatter)
+                file_handler.setLevel(logging.DEBUG)
+
+                # Add handler to the root "argus" logger
+                # Note: We only add to "argus" logger, not global root, to avoid duplicate logs
+                root_logger = logging.getLogger("argus")
+                root_logger.setLevel(logging.DEBUG)
+                root_logger.addHandler(file_handler)
+
+                # Log confirmation that file logging is set up
+                _logger.info("MCP Server file logging configured: %s", self.log_file)
+                print(f"[DEBUG] File handler added to argus logger")
+            except Exception as e:
+                # If file logging fails, log to console at least
+                _logger.error("Failed to set up MCP server file logging: %s", e)
+        else:
+            _logger.warning("MCP Server started without file logging (log_file not provided)")
+
         try:
             _logger.info(
                 "Starting Argus MCP Server on %s:%s at mount_path=%s",
@@ -143,13 +176,17 @@ class ArgusMCPServer(Process):
                 continue
 
             if not plugin.initialized:
+                config_with_output = {
+                    "workdir": conf.get("workdir"),
+                    **conf.get(f"server.{what}.{plugin_name}", {}),
+                }
+                # Add output_dir if available
+                if self.output_dir:
+                    config_with_output["output_dir"] = self.output_dir
                 registry.initialize_plugin(
                     plugin_name,
                     group,
-                    {
-                        "workdir": conf.get("workdir"),
-                        **conf.get(f"server.{what}.{plugin_name}", {}),
-                    },
+                    config_with_output,
                 )
 
             components = {

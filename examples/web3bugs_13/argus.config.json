@@ -1,0 +1,60 @@
+{
+  "orchestrator": {
+    "llm": "gemini",
+    "enable_contract_filtering": true,
+    "filter_low_confidence_threshold": 7,
+    "skip_project_semantic_if_large": true,
+    "project_semantic_max_contracts": 10
+  },
+  "llm": {
+    "anthropic": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-5-20250929",
+      "api_key": "ANTHROPIC_API_KEY",
+      "max_retries": 3,
+      "timeout": 900,
+      "max_tool_result_length": 50000
+    },
+    "gemini": {
+      "provider": "gemini",
+      "model": "gemini-2.5-pro",
+      "api_key": "GEMINI_API_KEY",
+      "max_retries": 3,
+      "timeout": 900,
+      "max_tool_result_length": 50000
+    }
+  },
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8000,
+    "mount_path": "/mcp",
+    "tools": {
+      "mythril": {
+        "timeout": 1200,
+        "outform": "json",
+        "docker": {
+          "image": "mythril/myth:latest",
+          "network_mode": "bridge",
+          "remove_containers": true
+        }
+      },
+      "slither": {
+        "timeout": 1200,
+        "docker": {
+          "image": "trailofbits/eth-security-toolbox:latest",
+          "network_mode": "bridge",
+          "remove_containers": true
+        }
+      }
+    }
+  },
+  "generator": {
+    "llm": "gemini",
+    "framework": "hardhat"
+  },
+  "output": {
+    "directory": "argus",
+    "level": "debug"
+  },
+  "workdir": "."
+}

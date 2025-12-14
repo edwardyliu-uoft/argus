@@ -27,7 +27,15 @@ class GeminiProvider(BaseLLMProvider):
         if not api_key:
             raise ValueError(f"{api_key_env} environment variable not set")
 
-        self.client = genai.Client(api_key=api_key)
+        # Configure timeout from config (convert seconds to milliseconds)
+        # Gemini SDK timeout parameter expects milliseconds
+        timeout_seconds = self.config.get("timeout", 900)
+        timeout_ms = timeout_seconds * 1000
+
+        self.client = genai.Client(
+            api_key=api_key,
+            http_options=types.HttpOptions(timeout=timeout_ms)
+        )
 
     def convert_tools_format(self, tools: List[Dict[str, Any]]) -> types.Tool:
         """
@@ -196,6 +204,7 @@ class GeminiProvider(BaseLLMProvider):
     async def call_simple(self, prompt: str) -> str:
         """
         Call Gemini without function calling (simple text completion).
+        Includes retry logic for connection failures.
 
         Args:
             prompt: User prompt
@@ -203,28 +212,70 @@ class GeminiProvider(BaseLLMProvider):
         Returns:
             Text response
         """
-        try:
-            config = types.GenerateContentConfig(
-                temperature=0, response_modalities=["TEXT"]
-            )
+        import asyncio
 
-            response = self.client.models.generate_content(
-                model=self.config.get("model"),
-                contents=prompt,
-                config=config,
-            )
+        max_retries = self.config.get("max_retries", 3)
+        retry_delay = 2.0  # Fixed retry delay
 
-            # Extract text from response
-            if not response.candidates or len(response.candidates) == 0:
-                return "No response from Gemini"
+        for attempt in range(max_retries):
+            try:
+                config = types.GenerateContentConfig(
+                    temperature=0, response_modalities=["TEXT"]
+                )
 
-            final_text = ""
-            for part in response.candidates[0].content.parts:
-                if hasattr(part, "text") and part.text:
-                    final_text += part.text
+                response = self.client.models.generate_content(
+                    model=self.config.get("model"),
+                    contents=prompt,
+                    config=config,
+                )
 
-            return final_text if final_text else "Empty response from Gemini"
+                # Extract text from response
+                if not response.candidates or len(response.candidates) == 0:
+                    return "No response from Gemini"
 
-        except Exception as e:
-            _logger.error("    LLM call failed: %s", e)
-            raise
+                final_text = ""
+                for part in response.candidates[0].content.parts:
+                    if hasattr(part, "text") and part.text:
+                        final_text += part.text
+
+                return final_text if final_text else "Empty response from Gemini"
+
+            except Exception as e:
+                error_str = str(e).lower()
+
+                # Check if this is a retryable error
+                is_retryable = any(
+                    keyword in error_str
+                    for keyword in [
+                        "disconnected",
+                        "connection",
+                        "timeout",
+                        "remote protocol",
+                        "broken pipe",
+                        "reset by peer",
+                        "server error",
+                        "503",
+                        "502",
+                        "500",
+                    ]
+                )
+
+                if is_retryable and attempt < max_retries - 1:
+                    _logger.warning(
+                        "LLM call failed (attempt %d/%d): %s. Retrying in %.1fs...",
+                        attempt + 1,
+                        max_retries,
+                        e,
+                        retry_delay,
+                    )
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                    continue
+                else:
+                    # Non-retryable or final attempt
+                    if attempt == max_retries - 1:
+                        _logger.error(
+                            "LLM call failed after %d attempts: %s", max_retries, e
+                        )
+                    _logger.error("    LLM call failed: %s", e)
+                    raise

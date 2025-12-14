@@ -33,12 +33,23 @@ contract RewardToken {
      * @param amount Amount of tokens to mint (in wei units)
      */
     function mintReward(address to, uint256 amount) external onlyOwner {
-        unchecked {
             totalSupply += amount;
             balanceOf[to] += amount;
-        }
 
         emit Transfer(address(0), to, amount);
+    }
+
+
+    /**
+     * @dev Burns tokens from the caller's balance.
+     * balanceOf is uint256
+     * @param amount Amount of tokens to burn
+     */
+    function burn(uint256 amount) external {
+        unchecked {
+            balanceOf[msg.sender] -= amount;
+            totalSupply -= amount;
+        }
     }
 
     /**

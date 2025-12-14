@@ -131,14 +131,19 @@ def write_file(file: str, content: str):
 
 
 def parse_json_llm(message: str) -> Dict:
-    """Parse JSON from LLM response, handling markdown code blocks.
+    """Parse JSON from LLM response, handling markdown code blocks and malformed responses.
 
     Args:
         message: LLM message string
 
     Returns:
         Parsed JSON as dict
+
+    Raises:
+        json.JSONDecodeError: If JSON parsing fails after all cleanup attempts
     """
+    import re
+
     # Remove markdown code blocks if present
     message = message.strip()
     if message.startswith("```json"):
@@ -150,12 +155,46 @@ def parse_json_llm(message: str) -> Dict:
 
     message = message.strip()
 
+    # Try parsing as-is first
     try:
         return json.loads(message)
     except json.JSONDecodeError as e:
+        _logger.warning("Initial JSON parse failed: %s", e)
+
+        # Strategy 1: Extract JSON from text using regex
+        # Look for first { to last } (handles text before/after JSON)
+        json_match = re.search(r'\{.*\}', message, re.DOTALL)
+        if json_match:
+            try:
+                return json.loads(json_match.group(0))
+            except json.JSONDecodeError:
+                _logger.debug("Regex extraction failed")
+
+        # Strategy 2: Clean up common LLM artifacts
+        # Remove common invalid characters between JSON elements
+        cleaned = re.sub(r'\}\s*[a-zA-Z]\s*\{', '},{', message)  # Fix: }e{ -> },{
+        cleaned = re.sub(r'\]\s*[a-zA-Z]\s*\[', '],[', cleaned)  # Fix: ]e[ -> ],[
+
+        try:
+            return json.loads(cleaned)
+        except json.JSONDecodeError:
+            _logger.debug("Cleaned JSON parse failed")
+
+        # Strategy 3: Try to fix truncated JSON by finding last complete object
+        if message.strip().endswith(','):
+            # Remove trailing comma
+            try:
+                return json.loads(message.rstrip(','))
+            except json.JSONDecodeError:
+                _logger.debug("Trailing comma removal failed")
+
+        # All strategies failed - log full error and raise
         _logger.error("Error parsing JSON from LLM: %s", e)
-        _logger.error("Message was: %s", message[:200])
-        return {}
+        _logger.error("Message was: %s", message[:500])
+        _logger.error("Full message length: %d characters", len(message))
+
+        # Re-raise the original exception instead of silently returning {}
+        raise
 
 
 def project_is_hardhat(project_root: str) -> bool:

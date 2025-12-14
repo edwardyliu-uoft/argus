@@ -210,7 +210,11 @@ __marimo__/
 node_modules/
 examples/*/argus/*
 
-examples/itoken
+# Ignore all examples except demo-project and web3bugs_13
+examples/*
+!examples/demo-project/
+!examples/web3bugs_13/
+
 artifacts/
 cache/
 Argus.*.js

@@ -91,7 +91,7 @@ class BaseLLMProvider(ABC):
         """
 
     @abstractmethod
-    def call_simple(self, prompt: str) -> str:
+    async def call_simple(self, prompt: str) -> str:
         """
         Call LLM without tools (simple text completion).
 
@@ -105,7 +105,7 @@ class BaseLLMProvider(ABC):
     async def _execute_tool(self, tool_name: str, tool_args: Dict[str, Any]) -> str:
         """
         Execute a tool by calling the MCP server via the MCP client.
-        This is shared across all providers.
+        This is shared across all providers. Includes retry logic for connection failures.
 
         Args:
             tool_name: Name of the tool to execute
@@ -115,19 +115,66 @@ class BaseLLMProvider(ABC):
             Tool result as JSON string
 
         Raises:
-            RuntimeError: If MCP server call fails
+            RuntimeError: If MCP server call fails after all retries
         """
-        try:
-            # Initialize MCP session if not already done (lazy initialization)
-            if self.__mcp_session is None:
-                await self._initialize_mcp_session()
+        max_retries = utils.conf_get(self.config, "server.max_retries", 3)
+        retry_delay = utils.conf_get(self.config, "server.retry_delay", 1.0)
 
-            # Call the tool using the persistent session
-            result = await self._call_mcp_tool(tool_name, tool_args)
-            return json.dumps(result)
+        for attempt in range(max_retries):
+            try:
+                # Initialize MCP session if not already done (lazy initialization)
+                if self.__mcp_session is None:
+                    await self._initialize_mcp_session()
 
-        except Exception as e:
-            raise RuntimeError(f"Tool execution error: {e}", e) from e
+                # Call the tool using the persistent session
+                result = await self._call_mcp_tool(tool_name, tool_args)
+                return json.dumps(result)
+
+            except Exception as e:
+                error_str = str(e).lower()
+
+                # Check if this is a connection/network error that we can retry
+                is_retryable = any(
+                    keyword in error_str
+                    for keyword in [
+                        "disconnected",
+                        "connection",
+                        "timeout",
+                        "remote protocol",
+                        "broken pipe",
+                        "reset by peer",
+                    ]
+                )
+
+                if is_retryable and attempt < max_retries - 1:
+                    _logger.warning(
+                        "Tool execution failed (attempt %d/%d): %s. Retrying in %.1fs...",
+                        attempt + 1,
+                        max_retries,
+                        e,
+                        retry_delay,
+                    )
+
+                    # Clean up broken session before retry
+                    await self._cleanup_broken_session()
+
+                    # Wait before retrying
+                    import asyncio
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                    continue
+                else:
+                    # Non-retryable error or final attempt
+                    if attempt == max_retries - 1:
+                        _logger.error(
+                            "Tool execution failed after %d attempts: %s",
+                            max_retries,
+                            e,
+                        )
+                    raise RuntimeError(f"Tool execution error: {e}") from e
+
+        # Should never reach here, but just in case
+        raise RuntimeError("Tool execution failed: max retries exceeded")
 
     async def _initialize_mcp_session(self) -> None:
         """
@@ -182,6 +229,30 @@ class BaseLLMProvider(ABC):
             return {"content": content_blocks, "raw": str(result)}
         else:
             return {"content": [str(result)], "raw": str(result)}
+
+    async def _cleanup_broken_session(self) -> None:
+        """
+        Clean up a broken MCP session without raising errors.
+        Used internally for retry logic.
+        """
+        if self.__mcp_session is not None:
+            try:
+                await self.__mcp_session.__aexit__(None, None, None)
+            # pylint: disable=broad-except
+            except Exception:
+                pass  # Ignore errors during broken session cleanup
+            finally:
+                self.__mcp_session = None
+
+        if self.__mcp_context is not None:
+            try:
+                # pylint: disable=no-member
+                await self.__mcp_context.__aexit__(None, None, None)
+            # pylint: disable=broad-except
+            except Exception:
+                pass  # Ignore errors during broken context cleanup
+            finally:
+                self.__mcp_context = None
 
     async def cleanup_mcp_session(self) -> None:
         """

@@ -22,16 +22,17 @@ import json
 
 
 def tools_info_prompt() -> str:
-    """Return MCP tool schemas for Slither and Mythril.
+    """Return MCP tool schemas for Slither, Mythril, and query_slither_results.
 
     These schemas match the actual tool function signatures in:
     - argus.server.tools.slither.slither()
+    - argus.server.tools.slither.query_slither_results()
     - argus.server.tools.mythril.mythril()
     """
     return [
         {
             "name": "slither",
-            "description": "Run Slither static analysis on Solidity files. Returns JSON with vulnerabilities found.",
+            "description": "Run Slither static analysis on Solidity files. Returns a SUMMARY with total findings count and a results_file path. Use query_slither_results to retrieve actual findings.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -112,6 +113,40 @@ The "analyze" subcommand and "-o json" flags are REQUIRED for the tool to return
                 "required": ["args"],
             },
         },
+        {
+            "name": "query_slither_results",
+            "description": "Query Slither results with server-side filtering. Use this to retrieve findings from a saved Slither results file in chunks, filtered by severity, detector type, or contract.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "results_file": {
+                        "type": "string",
+                        "description": "Path to the slither-full-results.json file (obtained from slither tool's results_file field)",
+                    },
+                    "severity": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": 'Filter by severity levels. Valid values: ["High", "Medium", "Low", "Informational", "Optimization"]. Example: ["High", "Medium"]',
+                    },
+                    "detector_types": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": 'Filter by detector names. Example: ["reentrancy-eth", "arbitrary-send", "controlled-delegatecall"]',
+                    },
+                    "contracts": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": 'Filter by contract names. Example: ["Visor", "Hypervisor"]',
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of findings to return (default: 50). Use smaller limits to avoid context overflow.",
+                        "default": 50,
+                    },
+                },
+                "required": ["results_file"],
+            },
+        },
     ]
 
 
@@ -162,7 +197,9 @@ Return ONLY valid JSON, no additional text.
 def file_semantic_analysis_prompt(file_path: str, code: str) -> str:
     """Generate prompt for file-level semantic analysis."""
     return f"""
-Analyze this Solidity contract for semantic misalignment between documentation and implementation.
+You have two tasks for this Solidity contract:
+1. **Classify** the contract to determine if it needs further in-depth analysis in subsequent phases
+2. **Analyze** it for semantic misalignment between documentation and implementation
 
 **File**: {file_path}
 
@@ -171,15 +208,77 @@ Analyze this Solidity contract for semantic misalignment between documentation a
 {code}
 ```
 
-**Analysis Requirements**:
+**TASK 1: Classification Requirements**:
+Classify this contract to determine if it warrants further in-depth analysis (static analysis, test generation, etc.):
+
+1. **Standard Library Detection**:
+   - Check for standard library imports (@openzeppelin/contracts, @solmate, @chainlink)
+   - Identify if contract inherits from well-known base contracts:
+     * ERC20, ERC721, ERC1155, ERC4626 (token standards)
+     * Ownable, AccessControl, Pausable (access patterns)
+     * ReentrancyGuard, SafeMath (security utilities)
+   - If contract ONLY inherits standard patterns WITHOUT custom logic → mark as standard_library
+   - If contract extends standard libraries WITH custom business logic → analyze further
+
+2. **Test/Mock Contract Detection**:
+   - Check for test-related naming patterns: "Mock", "Test", "Fake", "Stub", "Attacker", "Helper"
+   - Check if file path contains "test", "mock", or "test-helpers" directories
+   - Mark as test_contract or mock_contract accordingly
+
+3. **Interface-Only Detection**:
+   - Check if contract is an interface (interface keyword)
+   - Interfaces have no implementation, only function signatures
+   - Should skip further analysis (no exploitable logic)
+
+4. **Complexity Assessment**:
+   - **simple**: < 100 lines, basic CRUD operations, minimal state management, no fund handling
+   - **medium**: 100-300 lines, moderate logic, state management, some external calls
+   - **complex**: > 300 lines, complex state machines, heavy cross-contract interaction, fund management
+
+5. **Further Analysis Decision - should_analyze_further**:
+
+   **ANALYZE (true) if**:
+   - Contract has custom business logic beyond standard patterns
+   - Handles funds (deposits, withdrawals, transfers, payments)
+   - Has custom access control beyond standard Ownable
+   - Implements novel mechanisms or algorithms
+   - Has any concerning patterns identified in initial review
+   - Extends standard library with meaningful additions
+   - Is a core protocol contract
+
+   **SKIP (false) if**:
+   - Pure standard library implementation with no modifications
+   - Test helper or mock contract
+   - Simple getter/setter contract with no security implications
+   - Interface-only contract (no implementation)
+   - Unmodified OpenZeppelin/Solmate/Chainlink import
+
+   **Confidence Score**:
+   - Rate your confidence in this classification from 1-10
+   - 10 = certain (e.g., exact OpenZeppelin ERC20 with no changes)
+   - 5 = uncertain (e.g., complex inheritance, unclear if custom logic exists)
+   - 1 = very uncertain (e.g., insufficient context, ambiguous code)
+   - Only skip contracts with confidence >= 7
+
+**TASK 2: Semantic Analysis Requirements**:
 1. Compare inline comments and docstrings with actual implementation
 2. Check if access controls match documented intent
 3. Verify business logic aligns with described behavior
 4. Identify missing security checks mentioned in comments and docstrings
 
-**Output Format** (return as JSON):
+**Output Format** (return as JSON with BOTH classification and findings):
 ```json
 {{
+  "contract_classification": {{
+    "is_standard_library": <boolean>,
+    "library_type": null | "openzeppelin" | "solmate" | "chainlink" | "other",
+    "is_test_contract": <boolean>,
+    "is_mock_contract": <boolean>,
+    "complexity": "simple" | "medium" | "complex",
+    "should_analyze_further": <boolean>,
+    "skip_reason": null | "standard_library" | "test_helper" | "minimal_logic" | "interface_only",
+    "confidence": <1-10>
+  }},
   "findings": [
     {{
       "type": "semantic_misalignment",
@@ -356,10 +455,31 @@ You are a smart contract security analyzer with access to static analysis tools.
 - Your role is to ANALYZE existing code, not to modify it
 
 **Analysis Guidelines**:
-- Contract paths are relative to the project root - use them as-is in tool calls
-- Run slither on all contracts (fast, comprehensive)
-- Run mythril on contracts with complex logic, fund handling, or access control
-- Focus on high/medium severity issues
+- **CRITICAL**: Run Slither ONCE on the entire project with path filtering
+  - Slither needs full project context (all imports, cross-contract interactions)
+  - Use: slither(args=[".", "--include-paths", "path1|path2|path3", "--json", "-"])
+  - The "." analyzes full project with all dependencies resolved
+  - --include-paths uses regex to limit results to specific contracts (use | as separator)
+  - Example: slither(args=[".", "--include-paths", "contracts/Visor.sol|contracts/Mainframe.sol", "--json", "-"])
+  - **IMPORTANT**: Slither will return a SUMMARY (not full findings) with:
+    - total_findings: Total number of vulnerabilities found
+    - by_severity: Count of findings by severity level
+    - by_detector: Count of findings by detector type
+    - results_file: Path to the full results JSON file
+
+- **Query Slither results iteratively** using query_slither_results tool:
+  - After running slither, use query_slither_results to retrieve findings in chunks
+  - Start with high-severity: query_slither_results(results_file="path/from/summary", severity=["High"])
+  - Then medium: query_slither_results(results_file="...", severity=["Medium"], limit=20)
+  - Query specific detectors if needed: query_slither_results(results_file="...", detector_types=["reentrancy-eth"])
+  - This prevents hitting size limits and lets you prioritize critical findings
+  - The tool returns: findings (array), total_found, total_available, truncated (bool)
+
+- Run mythril selectively on 2-3 highest-risk contracts (if time permits)
+  - Mythril is much slower, so only target contracts with critical vulnerabilities
+  - Use: mythril(args=["contracts/path/to/Contract.sol"])
+
+- Focus on high/medium severity issues from tools
 
 **CRITICAL - Final Response Format**:
 After running all tools, return ONLY a JSON object. DO NOT wrap in markdown code blocks.
@@ -717,6 +837,8 @@ def report_generation_prompt(
     endpoints: dict,
     test_results: dict,
     contracts: list,
+    contracts_skipped: list,
+    contracts_metadata: dict,
 ) -> str:
     """Generate prompt for final comprehensive report creation.
 
@@ -730,6 +852,8 @@ def report_generation_prompt(
         endpoints: Phase 5 extracted endpoints
         test_results: Phase 6 test execution results
         contracts: List of analyzed contracts
+        contracts_skipped: List of contracts skipped during filtering
+        contracts_metadata: Classification metadata for all contracts
     """
     return f"""
 Generate a comprehensive security analysis report based on the multi-phase analysis results.
@@ -738,6 +862,15 @@ Generate a comprehensive security analysis report based on the multi-phase analy
 - **Timestamp**: {timestamp}
 - **Duration**: {duration:.1f} seconds
 - **Contracts Analyzed**: {', '.join([c.name for c in contracts])}
+- **Contracts Skipped**: {len(contracts_skipped)}
+
+**Contracts Metadata** (Classification Info):
+```json
+{json.dumps(contracts_metadata, indent=2)}
+```
+
+**Contracts Skipped** ({len(contracts_skipped)} total):
+{', '.join([c.name for c in contracts_skipped]) if contracts_skipped else 'None'}
 
 **Phase 2 - File-Level Semantic Findings**:
 ```json
@@ -792,6 +925,22 @@ Generate a comprehensive security analysis report based on the multi-phase analy
 1. [Most critical finding]
 2. [Second most critical]
 3. ...
+
+---
+
+## Contract Analysis Scope
+
+**Total Contracts Discovered**: {len(contracts) + len(contracts_skipped)}
+**Contracts Analyzed In-Depth**: {len(contracts)}
+**Contracts Skipped**: {len(contracts_skipped)}
+
+### Analyzed Contracts
+{chr(10).join([f"- **{c.name}** - Complexity: {contracts_metadata.get(c.name, {}).get('complexity', 'unknown') if c.name in contracts_metadata else 'unknown'}" for c in contracts])}
+
+### Skipped Contracts
+{chr(10).join([f"- **{c.name}** - Reason: {contracts_metadata.get(c.name, {}).get('skip_reason', 'N/A') if c.name in contracts_metadata else 'N/A'} (Confidence: {contracts_metadata.get(c.name, {}).get('confidence', 0) if c.name in contracts_metadata else 0}/10)" for c in contracts_skipped]) if contracts_skipped else 'None'}
+
+**Note**: Skipped contracts were excluded from in-depth static analysis and test generation based on automated classification. They may still appear in project-level semantic analysis if they interact with analyzed contracts.
 
 ---
 
